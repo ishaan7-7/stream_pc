@@ -1,0 +1,20 @@
+{
+  "enabled_sims": [
+    "sim001",
+    "sim002",
+    "sim003",
+    "sim007",
+    "sim008",
+    "sim009",
+    "sim010"
+  ],
+  "replay_mode": "fixed_rate",
+  "rows_per_second": 1,
+  "batch_size": 100,
+  "batch_interval_seconds": 5,
+  "http_endpoint": "http://127.0.0.1:8000/ingest/v1/events",
+  "reset": {
+    "enabled": false,
+    "archive_dlq": true
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "kafka": {
+    "bootstrap_servers": "localhost:9092"
+  },
+  "topics": {
+    "engine": "telemetry.engine",
+    "transmission": "telemetry.transmission",
+    "battery": "telemetry.battery",
+    "tyre": "telemetry.tyre",
+    "body": "telemetry.body"
+  },
+  "dlq": {
+    "path": "ingest/dlq"
+  },
+  "metrics": {
+    "port": 9101
+  }
+}

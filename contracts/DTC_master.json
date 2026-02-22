@@ -1,0 +1,664 @@
+{
+  "modules": {
+    "engine": [
+      {
+        "dtc_code": "P0217",
+        "severity": "critical",
+        "category": "Thermal",
+        "description": "Engine Coolant Over Temperature",
+        "dashboard_message": "CRITICAL: Engine coolant temperature exceeding safe limits. Immediate risk of seizure.",
+        "features": [
+          "ecu_7ea_engine_coolant_temperature",
+          "engine_oil_temperature",
+          "engine_load_absolute",
+          "ecu_7eb_engine_rpm_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0420",
+        "severity": "critical",
+        "category": "Emissions",
+        "description": "Catalyst System Efficiency Below Threshold",
+        "dashboard_message": "Catalytic converter efficiency failure detected. Emission compliance risk.",
+        "features": [
+          "catalyst_temperature_bank_1_sensor_1",
+          "catalyst_temperature_bank_1_sensor_2",
+          "o2_bank_1_sensor_2_voltage_v",
+          "engine_rpm_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0171",
+        "severity": "critical",
+        "category": "Fuel System",
+        "description": "System Too Lean (Bank 1)",
+        "dashboard_message": "Engine running too lean. Risk of detonation or hesitation.",
+        "features": [
+          "fuel_trim_bank_1_long_term",
+          "fuel_trim_bank_1_short_term",
+          "air_fuel_ratio_measured_1",
+          "mass_air_flow_rate_g_s"
+        ]
+      },
+      {
+        "dtc_code": "P0300",
+        "severity": "critical",
+        "category": "Ignition",
+        "description": "Random/Multiple Cylinder Misfire Detected",
+        "dashboard_message": "Misfire detected. Engine vibration and power loss likely.",
+        "features": [
+          "engine_rpm_rpm",
+          "air_fuel_ratio_measured_1",
+          "engine_load_absolute",
+          "mass_air_flow_rate_g_s"
+        ]
+      },
+      {
+        "dtc_code": "P0101",
+        "severity": "critical",
+        "category": "Air Intake",
+        "description": "Mass Air Flow (MAF) Circuit Range/Perf",
+        "dashboard_message": "MAF sensor data inconsistent with engine load. Performance limited.",
+        "features": [
+          "mass_air_flow_rate_g_s",
+          "volumetric_efficiency_calculated",
+          "turbo_boost_vacuum_gauge_psi",
+          "engine_rpm_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0128",
+        "severity": "non_critical",
+        "category": "Thermal",
+        "description": "Coolant Thermostat (Below Regulating Temp)",
+        "dashboard_message": "Engine taking too long to reach operating temp. Check thermostat.",
+        "features": [
+          "ecu_7ea_engine_coolant_temperature",
+          "ecu_7ea_intake_air_temperature",
+          "ecu_7eb_ambient_air_temp",
+          "ecu_7eb_speed_obd_km_h"
+        ]
+      },
+      {
+        "dtc_code": "P0299",
+        "severity": "non_critical",
+        "category": "Performance",
+        "description": "Turbocharger Underboost Condition",
+        "dashboard_message": "Turbo boost lower than expected. Possible minor leak or wastegate issue.",
+        "features": [
+          "turbo_boost_vacuum_gauge_psi",
+          "engine_load_absolute",
+          "mass_air_flow_rate_g_s",
+          "engine_rpm_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0562",
+        "severity": "non_critical",
+        "category": "Electrical",
+        "description": "System Voltage Low",
+        "dashboard_message": "Low voltage detected at ECU. Check alternator or battery connections.",
+        "features": [
+          "voltage_control_module_v",
+          "ecu_7eb_engine_rpm_rpm",
+          "ecu_7eb_engine_load",
+          "ecu_7eb_ambient_air_temp"
+        ]
+      },
+      {
+        "dtc_code": "P0113",
+        "severity": "non_critical",
+        "category": "Sensor",
+        "description": "Intake Air Temp (IAT) Sensor High Input",
+        "dashboard_message": "IAT sensor reading implausibly high. Possible open circuit.",
+        "features": [
+          "ecu_7ea_intake_air_temperature",
+          "ecu_7eb_ambient_air_temp",
+          "engine_rpm_rpm",
+          "turbo_boost_vacuum_gauge_psi"
+        ]
+      },
+      {
+        "dtc_code": "P0133",
+        "severity": "non_critical",
+        "category": "Sensor",
+        "description": "O2 Sensor Circuit Slow Response (Bank 1)",
+        "dashboard_message": "O2 sensor aging detected. Response time lagging.",
+        "features": [
+          "o2_sensor1_wide_range_current_ma",
+          "air_fuel_ratio_measured_1",
+          "engine_rpm_rpm",
+          "engine_load_absolute"
+        ]
+      }
+    ],
+    "battery": [
+      {
+        "dtc_code": "P0A80",
+        "severity": "critical",
+        "category": "HV Battery",
+        "description": "Replace Hybrid Battery Pack (SOH Failure)",
+        "dashboard_message": "HV Battery Health critical. Replacement recommended immediately.",
+        "features": [
+          "battery_state_of_health_soh_pct",
+          "internal_resistance_impedance",
+          "battery_state_of_charge_soc_pct",
+          "hv_battery_pack_voltage"
+        ]
+      },
+      {
+        "dtc_code": "P0A1F",
+        "severity": "critical",
+        "category": "Thermal",
+        "description": "Battery Energy Control Module (Thermal Risk)",
+        "dashboard_message": "Battery thermal management failure. Risk of thermal runaway.",
+        "features": [
+          "battery_temperature_cell",
+          "ambient_air_temperature",
+          "hv_battery_pack_current",
+          "engine_coolant_temperature"
+        ]
+      },
+      {
+        "dtc_code": "P0562",
+        "severity": "critical",
+        "category": "12V System",
+        "description": "System Voltage Low (12V Battery Failure)",
+        "dashboard_message": "Auxiliary 12V system failure. Vehicle may not start.",
+        "features": [
+          "battery_voltage_ecu_7ee",
+          "auxiliary_12v_battery_current_draw",
+          "alternator_voltage_output",
+          "battery_current"
+        ]
+      },
+      {
+        "dtc_code": "P0A09",
+        "severity": "critical",
+        "category": "Charging",
+        "description": "DC/DC Converter Status Circuit Low",
+        "dashboard_message": "DC/DC Converter output low. 12V battery not charging.",
+        "features": [
+          "alternator_load_pct",
+          "alternator_voltage_output",
+          "hv_battery_pack_voltage",
+          "charging_power_kw"
+        ]
+      },
+      {
+        "dtc_code": "P0A7F",
+        "severity": "critical",
+        "category": "HV Battery",
+        "description": "Hybrid Battery Pack Deterioration (High Impedance)",
+        "dashboard_message": "Internal resistance high. Power delivery severely limited.",
+        "features": [
+          "internal_resistance_impedance",
+          "battery_state_of_health_soh_pct",
+          "hv_battery_pack_current",
+          "battery_temperature_cell"
+        ]
+      },
+      {
+        "dtc_code": "P0A94",
+        "severity": "non_critical",
+        "category": "Charging",
+        "description": "DC/DC Converter Performance (Charging Eff)",
+        "dashboard_message": "Charging efficiency below optimal. Energy loss detected.",
+        "features": [
+          "charging_efficiency_pct",
+          "charging_power_kw",
+          "hv_battery_pack_current",
+          "battery_state_of_charge_soc_pct"
+        ]
+      },
+      {
+        "dtc_code": "P0A7D",
+        "severity": "non_critical",
+        "category": "HV Battery",
+        "description": "Hybrid Battery State of Charge Low",
+        "dashboard_message": "State of Charge dangerously low. Range anxiety warning.",
+        "features": [
+          "battery_state_of_charge_soc_pct",
+          "distance_to_empty_km",
+          "hv_battery_pack_voltage",
+          "average_trip_speed_while_moving"
+        ]
+      },
+      {
+        "dtc_code": "P1429",
+        "severity": "non_critical",
+        "category": "Regen",
+        "description": "Regenerative Braking System Performance",
+        "dashboard_message": "Regen braking recovering less energy than expected.",
+        "features": [
+          "regenerative_energy_recovered",
+          "average_trip_speed_while_moving",
+          "hv_battery_pack_current",
+          "battery_state_of_charge_soc_pct"
+        ]
+      },
+      {
+        "dtc_code": "P0116",
+        "severity": "non_critical",
+        "category": "Thermal",
+        "description": "Engine Coolant Temp Range/Perf",
+        "dashboard_message": "Coolant temp sensor range performance issue.",
+        "features": [
+          "engine_coolant_temperature",
+          "ambient_air_temperature",
+          "average_trip_speed_overall",
+          "battery_temperature_cell"
+        ]
+      },
+      {
+        "dtc_code": "P0461",
+        "severity": "non_critical",
+        "category": "Fuel System",
+        "description": "Fuel Level Sensor / Consumption Mismatch",
+        "dashboard_message": "Calculated consumption does not match fuel level sensor drop.",
+        "features": [
+          "fuel_consumption_km_per_l_or_l_per_100_km",
+          "distance_to_empty_km",
+          "alcohol_fuel_percentage",
+          "energy_consumption_per_km_wh_per_km_per_inr_per_km"
+        ]
+      }
+    ],
+    "transmission": [
+      {
+        "dtc_code": "P0894",
+        "severity": "critical",
+        "category": "Mechanical",
+        "description": "Transmission Component Slipping",
+        "dashboard_message": "Severe transmission slip detected. Power loss imminent.",
+        "features": [
+          "clutch_engagement_per_slip",
+          "torque_converter_slip_speed",
+          "engine_rpm",
+          "vehicle_speed_kmh"
+        ]
+      },
+      {
+        "dtc_code": "P0730",
+        "severity": "critical",
+        "category": "Mechanical",
+        "description": "Incorrect Gear Ratio",
+        "dashboard_message": "Gear ratio mismatch. Mechanical failure or shift solenoid stuck.",
+        "features": [
+          "gear_position_actual",
+          "gear_commanded_target",
+          "engine_rpm",
+          "vehicle_speed_kmh"
+        ]
+      },
+      {
+        "dtc_code": "P0218",
+        "severity": "critical",
+        "category": "Hydraulic",
+        "description": "Transmission Fluid Over Temperature",
+        "dashboard_message": "Trans fluid overheating. Stop vehicle to prevent permanent damage.",
+        "features": [
+          "transmission_oil_temperature",
+          "transmission_oil_pressure",
+          "engine_load_absolute_pct",
+          "clutch_engagement_per_slip"
+        ]
+      },
+      {
+        "dtc_code": "P0868",
+        "severity": "critical",
+        "category": "Hydraulic",
+        "description": "Transmission Fluid Pressure Low",
+        "dashboard_message": "Transmission line pressure critically low. Engagement failure.",
+        "features": [
+          "transmission_oil_pressure",
+          "transmission_oil_temperature",
+          "engine_rpm",
+          "gear_position_actual"
+        ]
+      },
+      {
+        "dtc_code": "P0741",
+        "severity": "critical",
+        "category": "Mechanical",
+        "description": "Torque Converter Clutch Circuit Perf/Stuck Off",
+        "dashboard_message": "TCC stuck off. Reduced fuel economy and higher transmission temps.",
+        "features": [
+          "torque_converter_slip_speed",
+          "engine_rpm",
+          "transmission_oil_temperature",
+          "engine_load_calculated_pct"
+        ]
+      },
+      {
+        "dtc_code": "P2711",
+        "severity": "non_critical",
+        "category": "Performance",
+        "description": "Unexpected Mechanical Gear Disengagement",
+        "dashboard_message": "Gear popped out of engagement. Check shift linkage.",
+        "features": [
+          "gear_position_actual",
+          "driver_demand_engine_pct_torque",
+          "accel_z_g",
+          "engine_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0219",
+        "severity": "non_critical",
+        "category": "Performance",
+        "description": "Engine Overspeed Condition (Downshift Error)",
+        "dashboard_message": "Engine RPM exceeded limit during downshift.",
+        "features": [
+          "engine_rpm",
+          "vehicle_speed_kmh",
+          "gear_position_actual",
+          "accelerator_pedal_position_d_per_e_per_f_pct"
+        ]
+      },
+      {
+        "dtc_code": "P0605",
+        "severity": "non_critical",
+        "category": "Software",
+        "description": "Internal Control Module ROM Error (Torque calc)",
+        "dashboard_message": "Torque calculation error detected in ECU.",
+        "features": [
+          "actual_engine_pct_torque",
+          "driver_demand_engine_pct_torque",
+          "engine_reference_torque_nm",
+          "engine_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P0404",
+        "severity": "non_critical",
+        "category": "Emissions",
+        "description": "EGR Control Circuit Range/Performance",
+        "dashboard_message": "EGR valve position mismatch.",
+        "features": [
+          "egr_commanded_pct",
+          "egr_error_pct",
+          "engine_load_calculated_pct",
+          "engine_rpm"
+        ]
+      },
+      {
+        "dtc_code": "P2138",
+        "severity": "non_critical",
+        "category": "Sensor",
+        "description": "Throttle/Pedal Position Sensor Correlation",
+        "dashboard_message": "Accelerator pedal sensors disagree.",
+        "features": [
+          "accelerator_pedal_position_d_per_e_per_f_pct",
+          "throttle_position_manifold_pct",
+          "driver_demand_engine_pct_torque",
+          "vehicle_speed_kmh"
+        ]
+      }
+    ],
+    "tyre": [
+      {
+        "dtc_code": "C0077",
+        "severity": "critical",
+        "category": "Tire Pressure",
+        "description": "Low Tire Pressure (Severe/Blowout Risk)",
+        "dashboard_message": "CRITICAL: Tire pressure dangerously low. Blowout risk.",
+        "features": [
+          "tyre_pressure_fl_psi",
+          "tyre_pressure_fr_psi",
+          "tyre_pressure_rl_psi",
+          "tyre_pressure_rr_psi"
+        ]
+      },
+      {
+        "dtc_code": "C0031",
+        "severity": "critical",
+        "category": "Speed Sensor",
+        "description": "Left Front Wheel Speed Sensor Circuit",
+        "dashboard_message": "FL Speed sensor signal lost. ABS/Traction disabled.",
+        "features": [
+          "wheel_speed_fl_kmh",
+          "longitudinal_acceleration",
+          "yaw_rate",
+          "steering_angle_sensor"
+        ]
+      },
+      {
+        "dtc_code": "C0063",
+        "severity": "critical",
+        "category": "Stability",
+        "description": "Yaw Rate Sensor Plausibility Failure",
+        "dashboard_message": "Yaw rate sensor data invalid. ESP system disabled.",
+        "features": [
+          "yaw_rate",
+          "lateral_acceleration",
+          "steering_angle_sensor",
+          "wheel_speed_fr_kmh"
+        ]
+      },
+      {
+        "dtc_code": "C0082",
+        "severity": "critical",
+        "category": "Braking",
+        "description": "Brake System / Stopping Distance Failure",
+        "dashboard_message": "Stopping distance abnormal relative to brake pressure.",
+        "features": [
+          "stopping_distance",
+          "longitudinal_acceleration",
+          "wheel_speed_fl_kmh",
+          "tyre_pressure_fl_psi"
+        ]
+      },
+      {
+        "dtc_code": "C1234",
+        "severity": "critical",
+        "category": "Traction",
+        "description": "Excessive Wheel Slip (Traction Control)",
+        "dashboard_message": "Severe loss of traction detected on multiple wheels.",
+        "features": [
+          "slip_ratio_fl",
+          "slip_ratio_fr",
+          "longitudinal_acceleration",
+          "steering_angle_sensor"
+        ]
+      },
+      {
+        "dtc_code": "C0514",
+        "severity": "non_critical",
+        "category": "Tire Health",
+        "description": "Tire Temperature High (Overheating)",
+        "dashboard_message": "Tire running hot. Check load and pressure.",
+        "features": [
+          "tyre_temp_fl_c",
+          "tyre_pressure_fl_psi",
+          "tyre_load_fl_n",
+          "wheel_speed_fl_kmh"
+        ]
+      },
+      {
+        "dtc_code": "C0078",
+        "severity": "non_critical",
+        "category": "Tire Health",
+        "description": "Tire Diameter Mismatch (Severe Wear)",
+        "dashboard_message": "Tire wear uneven. Diameter mismatch detected.",
+        "features": [
+          "tyre_wear_fl_pct",
+          "tyre_wear_fr_pct",
+          "wheel_speed_fl_kmh",
+          "slip_ratio_fl"
+        ]
+      },
+      {
+        "dtc_code": "C0051",
+        "severity": "non_critical",
+        "category": "Calibration",
+        "description": "Steering Wheel Position Sensor Calibration",
+        "dashboard_message": "Steering angle sensor requires recalibration.",
+        "features": [
+          "steering_angle_sensor",
+          "yaw_rate",
+          "lateral_acceleration",
+          "steering_torque_applied"
+        ]
+      },
+      {
+        "dtc_code": "C1000",
+        "severity": "non_critical",
+        "category": "Suspension",
+        "description": "Suspension Damper Performance",
+        "dashboard_message": "Damper efficiency low. Ride comfort reduced.",
+        "features": [
+          "suspension_damper_force",
+          "vertical_acceleration",
+          "vibration_f1_hz",
+          "suspension_height_per_deflection"
+        ]
+      },
+      {
+        "dtc_code": "C0089",
+        "severity": "non_critical",
+        "category": "Load",
+        "description": "Tire Pressure Monitor Drive Indicator (Load)",
+        "dashboard_message": "Heavy load detected. Check rear tire pressure.",
+        "features": [
+          "tyre_load_rl_n",
+          "tyre_pressure_rl_psi",
+          "tyre_temp_rl_c",
+          "suspension_height_per_deflection"
+        ]
+      }
+    ],
+    "body": [
+      {
+        "dtc_code": "P0460",
+        "severity": "critical",
+        "category": "Fuel System",
+        "description": "Fuel Level Sensor 'A' Circuit",
+        "dashboard_message": "Fuel level sensor stuck. Signal flatlined.",
+        "features": [
+          "fuel_level_pct",
+          "odometer_reading",
+          "distance_since_codes_cleared",
+          "ambient_air_temperature_body"
+        ]
+      },
+      {
+        "dtc_code": "B1081",
+        "severity": "critical",
+        "category": "Environmental",
+        "description": "Ambient Air Temperature Sensor Circuit",
+        "dashboard_message": "Ambient temp sensor failure. HVAC performance impacted.",
+        "features": [
+          "ambient_air_temperature_body",
+          "cabin_temperature",
+          "ac_compressor_load_pct",
+          "hvac_blower_speed"
+        ]
+      },
+      {
+        "dtc_code": "B1000",
+        "severity": "critical",
+        "category": "ECU",
+        "description": "ECU Internal Malfunction (Odometer)",
+        "dashboard_message": "Odometer memory checksum error.",
+        "features": [
+          "odometer_reading",
+          "distance_since_codes_cleared",
+          "distance_with_mil_lit",
+          "fuel_level_pct"
+        ]
+      },
+      {
+        "dtc_code": "B1058",
+        "severity": "critical",
+        "category": "HVAC",
+        "description": "Blower Motor Control Circuit",
+        "dashboard_message": "Blower motor not responding to command.",
+        "features": [
+          "hvac_blower_speed",
+          "cabin_temperature",
+          "ac_compressor_load_pct",
+          "ambient_air_temperature_body"
+        ]
+      },
+      {
+        "dtc_code": "P0533",
+        "severity": "critical",
+        "category": "HVAC",
+        "description": "A/C Refrigerant Pressure Sensor High",
+        "dashboard_message": "A/C pressure critical high. Compressor disabled.",
+        "features": [
+          "ac_compressor_load_pct",
+          "ambient_air_temperature_body",
+          "cabin_temperature",
+          "hvac_blower_speed"
+        ]
+      },
+      {
+        "dtc_code": "B1320",
+        "severity": "non_critical",
+        "category": "Comfort",
+        "description": "Cabin Humidity Sensor",
+        "dashboard_message": "Cabin humidity sensor range error.",
+        "features": [
+          "cabin_humidity_pct",
+          "ac_compressor_load_pct",
+          "window_open_pct",
+          "cabin_temperature"
+        ]
+      },
+      {
+        "dtc_code": "B1166",
+        "severity": "non_critical",
+        "category": "Body Control",
+        "description": "Sunroof Position Sensor Performance",
+        "dashboard_message": "Sunroof not reaching target position.",
+        "features": [
+          "sunroof_position_pct",
+          "cabin_humidity_pct",
+          "window_open_pct",
+          "ambient_air_temperature_body"
+        ]
+      },
+      {
+        "dtc_code": "B1238",
+        "severity": "non_critical",
+        "category": "Body Control",
+        "description": "Window Position Sensor Performance",
+        "dashboard_message": "Window auto-up/down calibration lost.",
+        "features": [
+          "window_open_pct",
+          "cabin_temperature",
+          "hvac_blower_speed",
+          "ambient_air_temperature_body"
+        ]
+      },
+      {
+        "dtc_code": "P0534",
+        "severity": "non_critical",
+        "category": "HVAC",
+        "description": "Air Conditioner Refrigerant Charge Loss",
+        "dashboard_message": "Low refrigerant detected. Cooling performance reduced.",
+        "features": [
+          "ac_compressor_load_pct",
+          "cabin_temperature",
+          "ambient_air_temperature_body",
+          "cabin_humidity_pct"
+        ]
+      },
+      {
+        "dtc_code": "U0423",
+        "severity": "non_critical",
+        "category": "Data",
+        "description": "Invalid Data Received (MIL/Distance)",
+        "dashboard_message": "Invalid distance data on CAN bus.",
+        "features": [
+          "distance_with_mil_lit",
+          "distance_since_codes_cleared",
+          "odometer_reading",
+          "timestamp"
+        ]
+      }
+    ]
+  }
+}

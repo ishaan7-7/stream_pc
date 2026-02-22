@@ -1,0 +1,16 @@
+{
+  "kafka": {
+    "bootstrap_servers": "localhost:9092",
+    "topics": [
+      "telemetry.engine",
+      "telemetry.transmission",
+      "telemetry.battery",
+      "telemetry.tyre",
+      "telemetry.body"
+    ],
+    "group_id": "kafka-metrics-observer"
+  },
+  "http": {
+    "port": 9201
+  }
+}

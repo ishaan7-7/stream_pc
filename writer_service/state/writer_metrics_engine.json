@@ -1,0 +1,17 @@
+{
+  "status": "RUNNING",
+  "last_updated": 1771627032.479771,
+  "streams": {
+    "engine": {
+      "status": "ACTIVE",
+      "timestamp": "2026-02-20T22:36:52.811Z",
+      "batch_id": 13,
+      "num_input_rows": 70,
+      "total_rows_processed": 2174,
+      "backlog": 0,
+      "input_rate": 2.5611005414898287,
+      "process_rate": 3.6303288040659685,
+      "duration_ms": 19282
+    }
+  }
+}

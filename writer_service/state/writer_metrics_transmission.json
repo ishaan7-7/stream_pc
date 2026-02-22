@@ -1,0 +1,17 @@
+{
+  "status": "RUNNING",
+  "last_updated": 1771627035.2151,
+  "streams": {
+    "transmission": {
+      "status": "ACTIVE",
+      "timestamp": "2026-02-20T22:36:56.517Z",
+      "batch_id": 14,
+      "num_input_rows": 16,
+      "total_rows_processed": 2164,
+      "backlog": 0,
+      "input_rate": 0.6993312644783426,
+      "process_rate": 0.8726003490401397,
+      "duration_ms": 18336
+    }
+  }
+}

@@ -1,0 +1,12 @@
+*.csv
+*.log
+*.jsonl
+.logs/
+.venv/
+*.tgz
+*.zip
+.ipynb_checkpoints/
+__pycache__/
+*archive*/
+!*.json
+**/delta/

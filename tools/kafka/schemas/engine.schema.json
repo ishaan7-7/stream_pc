@@ -1,0 +1,43 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "telemetry.engine",
+  "type": "object",
+  "required": ["metadata", "data"],
+  "additionalProperties": false,
+
+  "properties": {
+    "metadata": {
+      "type": "object",
+      "required": ["row_hash", "vehicle_id", "module", "source_file"],
+      "additionalProperties": false,
+      "properties": {
+        "row_hash": {
+          "type": "string",
+          "description": "Deterministic hash computed during replay"
+        },
+        "vehicle_id": {
+          "type": "string"
+        },
+        "module": {
+          "type": "string",
+          "enum": ["engine"]
+        },
+        "source_file": {
+          "type": "string"
+        },
+        "ingest_ts": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp added by ingest gateway",
+          "nullable": true
+        }
+      }
+    },
+
+    "data": {
+      "type": "object",
+      "description": "Engine telemetry payload",
+      "additionalProperties": true
+    }
+  }
+}

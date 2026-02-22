@@ -1,0 +1,6 @@
+torch               # For the Neural Networks
+pandas              # For CSV manipulation
+numpy               # For math/vector operations
+scikit-learn        # For Scalers (MinMax/Standard) and metrics
+joblib              # For saving .pkl scalers
+tqdm                # For progress bars

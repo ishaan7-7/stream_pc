@@ -1,0 +1,741 @@
+{
+  "schema_type": "vehicle_module_master_schema",
+  "reference_sim": "sim001",
+  "modules": {
+    "engine": {
+      "file_pattern": "*engine*.csv",
+      "column_count": 27,
+      "columns": {
+        "timestamp": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05 08:00:00+00:00"
+        },
+        "date": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05"
+        },
+        "source_id": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "sim001"
+        },
+        "air_fuel_ratio_commanded_1": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 14.075822290650809
+        },
+        "air_fuel_ratio_measured_1": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 14.926146028579552
+        },
+        "catalyst_temperature_bank_1_sensor_1": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 513.2605157119923
+        },
+        "catalyst_temperature_bank_1_sensor_2": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 517.0651170072923
+        },
+        "engine_kw_at_the_wheels_kw": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.66821104
+        },
+        "engine_load_absolute": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 60.53866228777223
+        },
+        "engine_oil_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 75.5829276710737
+        },
+        "engine_rpm_rpm": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1234.4575452721883
+        },
+        "fuel_flow_rate_hour_l_hr": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 4.713345383082283
+        },
+        "fuel_trim_bank_1_long_term": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -3.125
+        },
+        "fuel_trim_bank_1_short_term": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -1.3337263692300334
+        },
+        "mass_air_flow_rate_g_s": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.658112789052179
+        },
+        "o2_sensor1_wide_range_current_ma": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.0048032826724008
+        },
+        "o2_bank_1_sensor_2_voltage_v": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.4501823635615681
+        },
+        "timing_advance": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 9.977038701583956
+        },
+        "turbo_boost_vacuum_gauge_psi": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -1.0325994079310703
+        },
+        "voltage_control_module_v": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 13.400562467692035
+        },
+        "volumetric_efficiency_calculated": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 48.41921583193764
+        },
+        "ecu_7ea_engine_coolant_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 69.03689646640993
+        },
+        "ecu_7ea_intake_air_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 40.99061691666863
+        },
+        "ecu_7eb_ambient_air_temp": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 32.91112034721411
+        },
+        "ecu_7eb_engine_load": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 64.336783019336
+        },
+        "ecu_7eb_engine_rpm_rpm": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 2179.636053465056
+        },
+        "ecu_7eb_speed_obd_km_h": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 72.92046505106356
+        }
+      }
+    },
+    "battery": {
+      "file_pattern": "*battery*.csv",
+      "column_count": 27,
+      "columns": {
+        "timestamp": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05 08:00:00+00:00"
+        },
+        "date": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05"
+        },
+        "source_id": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "sim001"
+        },
+        "battery_voltage_ecu_7ee": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 13.256178291573196
+        },
+        "battery_current": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 21.99569528971917
+        },
+        "battery_state_of_charge_soc_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 70.01156740983943
+        },
+        "battery_state_of_health_soh_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 97.01
+        },
+        "battery_temperature_cell": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 25.79800532669304
+        },
+        "hv_battery_pack_voltage": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 370.1669803597528
+        },
+        "hv_battery_pack_current": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -4.102533617455981
+        },
+        "internal_resistance_impedance": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0079358776275199
+        },
+        "alternator_load_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 47.828221441707385
+        },
+        "alternator_voltage_output": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 13.292849704431632
+        },
+        "energy_consumption_per_km_wh_per_km_per_inr_per_km": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 41.771706202205806
+        },
+        "regenerative_energy_recovered": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 2.0713146529742623
+        },
+        "distance_to_empty_km": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 343.4800191812949
+        },
+        "average_trip_speed_while_moving": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 46.0529163444836
+        },
+        "average_trip_speed_overall": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 44.70597338031492
+        },
+        "ambient_air_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 30.33281536366531
+        },
+        "barometer_android_device_mb": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1008.5267369975192
+        },
+        "engine_coolant_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 82.5550252449617
+        },
+        "charging_power_kw": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.170012015135837
+        },
+        "charging_efficiency_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 93.43111151760856
+        },
+        "auxiliary_12v_battery_current_draw": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 5.820248841287162
+        },
+        "fuel_consumption_km_per_l_or_l_per_100_km": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 14.6030388694013
+        },
+        "co_emissions_instant_per_avg": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 188.3973053517846
+        },
+        "alcohol_fuel_percentage": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 13.026332598262847
+        }
+      }
+    },
+    "body": {
+      "file_pattern": "*body*.csv",
+      "column_count": 14,
+      "columns": {
+        "timestamp": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05 08:00:00+00:00"
+        },
+        "date": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05"
+        },
+        "source_id": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "sim001"
+        },
+        "ambient_air_temperature_body": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 35.606230347844246
+        },
+        "cabin_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 22.68143418569093
+        },
+        "cabin_humidity_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 50.09786467270449
+        },
+        "hvac_blower_speed": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 29.93949127829456
+        },
+        "ac_compressor_load_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 40.50307936633013
+        },
+        "window_open_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 29.47517536107228
+        },
+        "sunroof_position_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.1302144104606315
+        },
+        "fuel_level_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 7.390446371559936
+        },
+        "distance_since_codes_cleared": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 5908.487694213401
+        },
+        "distance_with_mil_lit": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0
+        },
+        "odometer_reading": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 42159.97631845665
+        }
+      }
+    },
+    "transmission": {
+      "file_pattern": "*transmission*.csv",
+      "column_count": 30,
+      "columns": {
+        "timestamp": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05 08:00:00+00:00"
+        },
+        "date": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05"
+        },
+        "source_id": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "sim001"
+        },
+        "engine_rpm": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1762.234006284921
+        },
+        "gear_position_actual": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 3.6691119512435857
+        },
+        "gear_commanded_target": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1.0
+        },
+        "transmission_oil_temperature": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 62.90288563375275
+        },
+        "transmission_oil_pressure": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.9635205834661902
+        },
+        "clutch_engagement_per_slip": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 2.9719501988207684
+        },
+        "torque_converter_slip_speed": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 6.59753013000533
+        },
+        "actual_engine_pct_torque": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.2816440841028637
+        },
+        "driver_demand_engine_pct_torque": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 22.886797766492872
+        },
+        "engine_reference_torque_nm": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 32.013910363031286
+        },
+        "acceleration_sensor_total_g": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.99505049220018
+        },
+        "throttle_position_manifold_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 20.27243040645455
+        },
+        "accelerator_pedal_position_d_per_e_per_f_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 18.88477264191913
+        },
+        "air_fuel_ratio_commanded": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 14.340891837286154
+        },
+        "air_fuel_ratio_measured": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 15.150764572520428
+        },
+        "boost_pressure_commanded_a_per_b": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1.4155795493148131
+        },
+        "boost_pressure_sensor_a_per_b": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 7.565892275590517
+        },
+        "engine_load_calculated_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 5.46612666548421
+        },
+        "engine_load_absolute_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0
+        },
+        "egr_commanded_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 14.43647462326147
+        },
+        "egr_error_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -1.1649206774138845
+        },
+        "catalyst_temperatures_bank_sensors": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 576.468551972141
+        },
+        "bearing_heading_per_vehicle_yaw": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 301.12829762181667
+        },
+        "accel_x_g": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0068314239030886
+        },
+        "accel_y_g": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.0203314368894826
+        },
+        "accel_z_g": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.9915868965173308
+        },
+        "vehicle_speed_kmh": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 67.38711692853
+        }
+      }
+    },
+    "tyre": {
+      "file_pattern": "*tyre*.csv",
+      "column_count": 43,
+      "columns": {
+        "timestamp": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05 08:00:00+00:00"
+        },
+        "date": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "2024-07-05"
+        },
+        "source_id": {
+          "dtype": "object",
+          "nullable": false,
+          "example_value": "sim001"
+        },
+        "bearing_vehicle_heading": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 246.18393101527064
+        },
+        "longitudinal_acceleration": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.0057128740580505
+        },
+        "lateral_acceleration": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.1885396309074789
+        },
+        "yaw_rate": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 20.0
+        },
+        "stopping_distance": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 48.6
+        },
+        "steering_angle_sensor": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 157.43825803091846
+        },
+        "steering_torque_applied": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 49.14774477290711
+        },
+        "suspension_height_per_deflection": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 99.95073329527872
+        },
+        "suspension_damper_force": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -4.9396460048267965
+        },
+        "vertical_acceleration": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0293163665211967
+        },
+        "tyre_pressure_fl_psi": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 34.161803206092515
+        },
+        "tyre_pressure_fr_psi": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 34.76289558494589
+        },
+        "tyre_pressure_rl_psi": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 34.89343773955724
+        },
+        "tyre_pressure_rr_psi": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 37.07597294437624
+        },
+        "tyre_temp_fl_c": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 51.87493947575352
+        },
+        "tyre_temp_fr_c": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 36.09563448029332
+        },
+        "tyre_temp_rl_c": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 48.12807429109803
+        },
+        "tyre_temp_rr_c": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 37.465915515841694
+        },
+        "wheel_speed_fl_kmh": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0
+        },
+        "wheel_speed_fr_kmh": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 8086.967008783095
+        },
+        "wheel_speed_rl_kmh": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0
+        },
+        "wheel_speed_rr_kmh": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0
+        },
+        "slip_ratio_fl": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.1740468643424972
+        },
+        "slip_ratio_fr": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0790438871475103
+        },
+        "slip_ratio_rl": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.1997850811591834
+        },
+        "slip_ratio_rr": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.1999578014917691
+        },
+        "tyre_wear_fl_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 98.2830647195668
+        },
+        "tyre_wear_fr_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 98.42431498151213
+        },
+        "tyre_wear_rl_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 98.74908894963043
+        },
+        "tyre_wear_rr_pct": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 98.51779460609244
+        },
+        "tyre_load_fl_n": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 3313.6383307053225
+        },
+        "tyre_load_fr_n": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 4092.735960237724
+        },
+        "tyre_load_rl_n": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 3160.040771470205
+        },
+        "tyre_load_rr_n": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 4063.942963900568
+        },
+        "accel_x_g_tyre": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.0558086595850705
+        },
+        "accel_y_g_tyre": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": -0.1965180087298557
+        },
+        "accel_z_g_tyre": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.8294548815978567
+        },
+        "vibration_f1_hz": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 0.5
+        },
+        "vibration_f2_hz": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1.0
+        },
+        "vibration_f3_hz": {
+          "dtype": "float64",
+          "nullable": false,
+          "example_value": 1.5
+        }
+      }
+    }
+  }
+}
