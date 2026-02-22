@@ -5,6 +5,10 @@ import psutil
 import subprocess
 import webbrowser
 
+# Force UTF-8 encoding for all child processes to prevent Windows charmap crashes
+os.environ["PYTHONIOENCODING"] = "utf-8"
+os.environ["PYTHONUTF8"] = "1"
+
 VENV_PYTHON = r".venv\Scripts\python.exe"
 
 if not os.path.exists(VENV_PYTHON):
@@ -44,7 +48,8 @@ open_log_files = []
 def run_background_task(cmd, name, wait_time=0):
     """Runs a task silently in the background, piping output to a log file."""
     print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
-    log_file = open(f"logs/{name}.log", "w")
+    # Added utf-8 encoding to prevent Windows crash on special characters
+    log_file = open(f"logs/{name}.log", "w", encoding="utf-8")
     open_log_files.append(log_file)
     
     proc = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=subprocess.STDOUT)
@@ -128,8 +133,8 @@ def main():
         
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
-            # Automatically feed "y" + Enter to any script that prompts for confirmation
-            subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="y\n", text=True)
+            # Automatically feed "yes" + Enter to bypass prompts
+            subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="yes\n", text=True)
             
         print("Stream reset success.")
 
@@ -152,7 +157,8 @@ def main():
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'"{VENV_PYTHON}" {service}', f"Service_{name}", 20)
             
-        run_background_task(r"ingest\start_ingest.bat", "Service_Ingest", 5)
+        # Use Uvicorn to host the FastAPI application for Ingest
+        run_background_task(f'"{VENV_PYTHON}" -m uvicorn ingest.app.main:app --host 0.0.0.0 --port 8000', "Service_Ingest", 5)
         
         print("\n" + "="*40)
         print("ALL SERVICES ACTIVE IN BACKGROUND")
