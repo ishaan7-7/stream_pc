@@ -85,13 +85,29 @@ def run_detached_console(cmd, name, wait_time=0):
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
     
-    # We explicitly invoke cmd.exe with /k to keep the window open on crash for visibility.
-    # The 'title' command gives the window the correct name.
     full_cmd = f'title {name} && {cmd}'
     proc = subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
     
-    # proc.pid now correctly points to the active CMD executing the task, allowing clean kill.
     running_processes.append({"proc": proc, "name": name})
+    
+    if wait_time > 0:
+        time.sleep(wait_time)
+
+def run_untracked_console(cmd, name, wait_time=0):
+    """
+    run_v1.py behavior: Spawns an untracked window using Windows 'start'.
+    WARNING: The resulting process cannot be closed by cleanup().
+    """
+    print(f"--- Starting {name} in a new window (Untracked) ---")
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.getcwd()
+    
+    subprocess.Popen(
+        f'start "{name}" {cmd}', 
+        shell=True, 
+        creationflags=subprocess.CREATE_NEW_CONSOLE,
+        env=env
+    )
     
     if wait_time > 0:
         time.sleep(wait_time)
@@ -129,6 +145,7 @@ def cleanup():
         except: pass
             
     print("\nStream offline. All detached windows and background services closed.")
+    print("WARNING: You must manually close the Service_Ingest window!")
     sys.exit(0)
 
 def main():
@@ -179,7 +196,6 @@ def main():
         print("\n--- Resetting Spark/Stream Files ---")
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
-            # Automatically feed "yes" + Enter to bypass prompts
             subprocess.run(f'python {script}', shell=True, input="yes\n", text=True)
             
         print("Stream reset success.")
@@ -210,8 +226,8 @@ def main():
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'python {service}', f"Service_{name}", 20)
             
-        # The 'start' command has been removed to preserve the correct process tree hierarchy.
-        run_detached_console('uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
+        # Hard requirement: run_v1.py style untracked launch for Ingest
+        run_untracked_console('python -m uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
         
         print("\n" + "="*40)
         print("ALL SERVICES ACTIVE IN BACKGROUND / DETACHED WINDOWS")
