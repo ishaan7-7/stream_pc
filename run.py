@@ -82,7 +82,11 @@ def run_background_task(cmd, name, wait_time=0):
 
 def run_detached_console(cmd, name, wait_time=0):
     print(f"--- Starting {name} in a new window ---")
-    proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    env = os.environ.copy()
+    env["PYTHONPATH"] = os.getcwd()
+    
+    # We use shell=True and env=env so the new window inherits our .venv PATH injection
+    proc = subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
     running_processes.append({"proc": proc, "name": name})
     
     if wait_time > 0:
@@ -203,12 +207,12 @@ def main():
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'python {service}', f"Service_{name}", 20)
             
-        # THE INGEST FIX: Because PATH is now injected globally, we can call Uvicorn directly
-        # exactly like you do in the manual terminal.
-        run_background_task("uvicorn ingest.app.main:app --port 8000", "Service_Ingest", 5)
+        # THE INGEST FIX: Reverting to run_v1.py behavior!
+        # Opens in a dedicated CMD window so you can see the live Uvicorn logs.
+        run_detached_console('start "Service_Ingest" uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
         
         print("\n" + "="*40)
-        print("ALL SERVICES ACTIVE IN BACKGROUND")
+        print("ALL SERVICES ACTIVE IN BACKGROUND / DETACHED WINDOWS")
         print("Action: Start replay using the Notebook.")
         print("Press Ctrl+C in THIS terminal to safely shut everything down.")
         print("="*40)
