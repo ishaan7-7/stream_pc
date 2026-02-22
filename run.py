@@ -5,24 +5,25 @@ import psutil
 import subprocess
 import webbrowser
 
-# 1. Hardcode the VENV Python executable to avoid environment path issues
 VENV_PYTHON = r".venv\Scripts\python.exe"
 
-# Fallback in case the user didn't create the folder exactly as `.venv`
 if not os.path.exists(VENV_PYTHON):
     print(f"Warning: {VENV_PYTHON} not found. Using system Python.")
     VENV_PYTHON = sys.executable 
 
+# Ensure logs directory exists
+os.makedirs("logs", exist_ok=True)
+
 STREAMLIT_APPS = [
-    {"file": r"alerts_service\dashboard_alerts.py", "port": 8501, "name": "Alerts Dashboard"},
-    {"file": r"gold_service\dashboard_gold.py", "port": 8502, "name": "Gold Dashboard"},
-    {"file": r"inference_service\dashboard_inference.py", "port": 8503, "name": "Inference Dashboard"},
-    {"file": r"writer_service\dashboard_ops.py", "port": 8504, "name": "Ops Dashboard"},
-    {"file": r"telemetry_observer\ui.py", "port": 8505, "name": "Observer UI"} # Replaced the .bat file
+    {"file": r"alerts_service\dashboard_alerts.py", "port": 8501, "name": "Alerts_Dashboard"},
+    {"file": r"gold_service\dashboard_gold.py", "port": 8502, "name": "Gold_Dashboard"},
+    {"file": r"inference_service\dashboard_inference.py", "port": 8503, "name": "Inference_Dashboard"},
+    {"file": r"writer_service\dashboard_ops.py", "port": 8504, "name": "Ops_Dashboard"},
+    {"file": r"telemetry_observer\ui.py", "port": 8505, "name": "Observer_UI"}
 ]
 
 SERVICES = [
-    r"telemetry_observer\observer_backend.py", # Extracted from the .bat file
+    r"telemetry_observer\observer_backend.py",
     r"alerts_service\app.py",
     r"gold_service\app.py",
     r"inference_service\start_inference_cluster.py",
@@ -38,30 +39,39 @@ RESET_SCRIPTS = [
 ]
 
 running_processes = []
+open_log_files = []
 
-def run_command(cmd, wait_time=0, name="Process"):
-    print(f"--- Starting {name} ---")
-    # No CREATE_NEW_PROCESS_GROUP here. We want them bound to this console.
-    proc = subprocess.Popen(cmd, shell=True)
+def run_background_task(cmd, name, wait_time=0):
+    """Runs a task silently in the background, piping output to a log file."""
+    print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
+    log_file = open(f"logs/{name}.log", "w")
+    open_log_files.append(log_file)
+    
+    proc = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=subprocess.STDOUT)
     running_processes.append({"proc": proc, "name": name})
+    
     if wait_time > 0:
         time.sleep(wait_time)
-    return proc
+
+def run_detached_console(cmd, name, wait_time=0):
+    """Opens a separate CMD window for visual monitoring (Kafka/Zookeeper)."""
+    print(f"--- Starting {name} in a new window ---")
+    proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    running_processes.append({"proc": proc, "name": name})
+    
+    if wait_time > 0:
+        time.sleep(wait_time)
 
 def kill_process_tree(pid, name):
-    """Safely kills a process and all its children (e.g. cmd.exe -> java.exe)"""
     try:
         parent = psutil.Process(pid)
         children = parent.children(recursive=True)
         
-        # Friendly terminate
         for child in children:
             try: child.terminate()
             except: pass
             
         _, alive = psutil.wait_procs(children, timeout=3)
-        
-        # Force kill if still alive
         for child in alive:
             try: child.kill()
             except: pass
@@ -79,36 +89,47 @@ def cleanup():
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
     
-    ans = input("Have you stopped the replay worker from the notebook? (y/n): ")
+    input("Have you stopped the replay worker from the notebook? (Press Enter to confirm): ")
     
-    # Reverse order teardown: Ingest -> Services -> UI -> Kafka -> ZK
     for p_info in reversed(running_processes):
         print(f"Terminating {p_info['name']}...")
         kill_process_tree(p_info['proc'].pid, p_info['name'])
+        
+    for f in open_log_files:
+        try: f.close()
+        except: pass
             
-    print("\nStream offline. Infrastructure safely closed.")
+    print("\nStream offline. All detached windows and background services closed.")
     sys.exit(0)
 
 def main():
+    infra_needs_start = True
+
     # 1. Infrastructure Check
     for port in [2181, 9092]:
         if any(c.laddr.port == port for c in psutil.net_connections() if c.status == 'LISTEN'):
-            kill = input(f"Port {port} (Zookeeper/Kafka) is busy. We must kill it to proceed. Kill? (y/n): ")
+            kill = input(f"Port {port} (Zookeeper/Kafka) is busy. Kill previous session? (y/n): ")
             if kill.lower() == 'y':
                 for conn in psutil.net_connections():
                     if conn.laddr.port == port and conn.status == 'LISTEN':
                         kill_process_tree(conn.pid, f"Port {port}")
+            else:
+                print(f"Leaving process on port {port} running.")
+                infra_needs_start = False
 
     # 2. Reset Stream
-    reset = input("\nReset stream? (y/n): ").lower()
+    reset = input("\nReset stream files and topics? (y/n): ").lower()
     if reset == 'y':
-        run_command(r"tools\kafka\start_zookeeper.bat", 20, "Zookeeper")
-        run_command(r"tools\kafka\start_kafka.bat", 30, "Kafka")
+        if infra_needs_start:
+            run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
+            run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+        else:
+            print("Skipping Zookeeper/Kafka boot (already running).")
         
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
-            # Using absolute python path to ensure venv is respected
-            subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True)
+            # Automatically feed "y" + Enter to any script that prompts for confirmation
+            subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="y\n", text=True)
             
         print("Stream reset success.")
 
@@ -116,36 +137,33 @@ def main():
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
     if start_ui == 'y':
         for app in STREAMLIT_APPS:
-            # -m streamlit run ensures it uses the exact streamlit installed in the venv
             cmd = f'"{VENV_PYTHON}" -m streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
-            run_command(cmd, 0, app['name'])
+            run_background_task(cmd, app['name'])
             
-            # Wait 5 seconds for the server to bind to the port before opening the browser
-            print(f"Waiting for {app['name']} server to boot...")
+            print(f"Waiting 5s for {app['name']} server to bind...")
             time.sleep(5) 
             webbrowser.open(f"http://localhost:{app['port']}")
-            time.sleep(15) # Remaining cool-down
+            time.sleep(15) 
 
     # 4. Services
     start_serv = input("\nStart Services? (y/n): ").lower()
     if start_serv == 'y':
         for service in SERVICES:
-            run_command(f'"{VENV_PYTHON}" {service}', 20, service)
+            name = service.split('\\')[-1].replace('.py', '')
+            run_background_task(f'"{VENV_PYTHON}" {service}', f"Service_{name}", 20)
             
-        run_command(r"ingest\start_ingest.bat", 5, "Ingest Service")
+        run_background_task(r"ingest\start_ingest.bat", "Service_Ingest", 5)
         
         print("\n" + "="*40)
-        print("ALL SERVICES ACTIVE")
+        print("ALL SERVICES ACTIVE IN BACKGROUND")
         print("Action: Start replay using the Notebook.")
-        print("Press Ctrl+C inside this terminal to safely shut everything down.")
+        print("Press Ctrl+C in THIS terminal to safely shut everything down.")
         print("="*40)
 
 if __name__ == "__main__":
     try:
         main()
-        # Keep the main thread alive to catch the Ctrl+C
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        # This catches the Ctrl+C cleanly
         cleanup()
