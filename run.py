@@ -46,9 +46,8 @@ running_processes = []
 open_log_files = []
 
 def run_background_task(cmd, name, wait_time=0):
-    """Runs a task silently in the background, piping output to a log file."""
+    """Runs a task silently in the background, piping output to a UTF-8 log file."""
     print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
-    # Added utf-8 encoding to prevent Windows crash on special characters
     log_file = open(f"logs/{name}.log", "w", encoding="utf-8")
     open_log_files.append(log_file)
     
@@ -68,6 +67,7 @@ def run_detached_console(cmd, name, wait_time=0):
         time.sleep(wait_time)
 
 def kill_process_tree(pid, name):
+    """Safely kills a process and all its children to prevent memory leaks."""
     try:
         parent = psutil.Process(pid)
         children = parent.children(recursive=True)
@@ -90,6 +90,7 @@ def kill_process_tree(pid, name):
         print(f"Force closed {name} with minor errors.")
 
 def cleanup():
+    """Handles the Ctrl+C graceful shutdown sequence."""
     print("\n" + "="*40)
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
@@ -122,23 +123,25 @@ def main():
                 print(f"Leaving process on port {port} running.")
                 infra_needs_start = False
 
-    # 2. Reset Stream
+    # 2. Start Infrastructure (Independent of Reset logic)
+    if infra_needs_start:
+        print("\nStarting core infrastructure...")
+        run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
+        run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+    else:
+        print("\nSkipping Zookeeper/Kafka boot (already running).")
+
+    # 3. Reset Stream
     reset = input("\nReset stream files and topics? (y/n): ").lower()
     if reset == 'y':
-        if infra_needs_start:
-            run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
-            run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
-        else:
-            print("Skipping Zookeeper/Kafka boot (already running).")
-        
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
-            # Automatically feed "yes" + Enter to bypass prompts
+            # Automatically feed "yes" + Enter to bypass any prompts
             subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="yes\n", text=True)
             
         print("Stream reset success.")
 
-    # 3. Streamlit Apps
+    # 4. Streamlit Apps
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
     if start_ui == 'y':
         for app in STREAMLIT_APPS:
@@ -148,16 +151,16 @@ def main():
             print(f"Waiting 5s for {app['name']} server to bind...")
             time.sleep(5) 
             webbrowser.open(f"http://localhost:{app['port']}")
-            time.sleep(15) 
+            time.sleep(15) # Cooldown before starting the next heavy UI process
 
-    # 4. Services
+    # 5. Services
     start_serv = input("\nStart Services? (y/n): ").lower()
     if start_serv == 'y':
         for service in SERVICES:
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'"{VENV_PYTHON}" {service}', f"Service_{name}", 20)
             
-        # Use Uvicorn to host the FastAPI application for Ingest
+        # Use Uvicorn directly from the venv to host the FastAPI ingest gateway
         run_background_task(f'"{VENV_PYTHON}" -m uvicorn ingest.app.main:app --host 0.0.0.0 --port 8000', "Service_Ingest", 5)
         
         print("\n" + "="*40)
@@ -169,6 +172,7 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+        # Keep main thread alive to catch KeyboardInterrupt gracefully
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
