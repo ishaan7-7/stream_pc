@@ -6,10 +6,10 @@ import shutil
 import subprocess
 import webbrowser
 
-# Force UTF-8 and Unbuffered output so logs write instantly and cleanly
+# Force UTF-8 encoding and unbuffered output for clean, instant logs
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
-os.environ["PYTHONUNBUFFERED"] = "1" 
+os.environ["PYTHONUNBUFFERED"] = "1"
 
 VENV_PYTHON = r".venv\Scripts\python.exe"
 
@@ -17,12 +17,19 @@ if not os.path.exists(VENV_PYTHON):
     print(f"Warning: {VENV_PYTHON} not found. Using system Python.")
     VENV_PYTHON = sys.executable 
 
-# --- KAFKA RESET CONFIGURATION ---
-# Default Windows paths for Kafka/Zookeeper data. 
-# Change these if your server.properties points somewhere else!
+# --- KAFKA CONFIGURATION ---
+KAFKA_BIN_DIR = r"C:\kafka\bin\windows"
 KAFKA_LOG_DIR = r"C:\tmp\kafka-logs"
 ZK_LOG_DIR = r"C:\tmp\zookeeper"
-KAFKA_TOPICS = ["battery", "body", "engine", "transmission", "tyre"]
+
+# Topics exactly as required by ingest_config.json
+KAFKA_TOPICS = [
+    "telemetry.battery", 
+    "telemetry.body", 
+    "telemetry.engine", 
+    "telemetry.transmission", 
+    "telemetry.tyre"
+]
 
 os.makedirs("logs", exist_ok=True)
 
@@ -54,13 +61,12 @@ running_processes = []
 open_log_files = []
 
 def run_background_task(cmd, name, wait_time=0):
-    """Runs a task silently, forcing immediate unbuffered logs and mapping the PYTHONPATH."""
     print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
     log_file = open(f"logs/{name}.log", "w", encoding="utf-8")
     open_log_files.append(log_file)
     
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.getcwd() # Forces Uvicorn to recognize your project structure
+    env["PYTHONPATH"] = os.getcwd()
     
     proc = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=subprocess.STDOUT, env=env)
     running_processes.append({"proc": proc, "name": name})
@@ -72,6 +78,7 @@ def run_detached_console(cmd, name, wait_time=0):
     print(f"--- Starting {name} in a new window ---")
     proc = subprocess.Popen(cmd, creationflags=subprocess.CREATE_NEW_CONSOLE)
     running_processes.append({"proc": proc, "name": name})
+    
     if wait_time > 0:
         time.sleep(wait_time)
 
@@ -88,7 +95,7 @@ def kill_process_tree(pid, name):
             except: pass
         parent.terminate()
         parent.wait(timeout=3)
-        print(f"Successfully killed {name}.")
+        print(f"Successfully closed {name}.")
     except Exception:
         pass
 
@@ -96,6 +103,7 @@ def cleanup():
     print("\n" + "="*40)
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
+    
     input("Have you stopped the replay worker from the notebook? (Press Enter to confirm): ")
     
     for p_info in reversed(running_processes):
@@ -105,25 +113,44 @@ def cleanup():
     for f in open_log_files:
         try: f.close()
         except: pass
+            
     print("\nStream offline. All detached windows and background services closed.")
     sys.exit(0)
 
 def main():
-    # 1. Unconditional Pre-emptive Cleanup
-    print("\nEnsuring a clean state: Checking for ghost Kafka/Zookeeper processes...")
+    infra_is_running = False
+
+    print("\nChecking Infrastructure State...")
+    # 1. Check if Kafka/ZK are alive
     for port in [2181, 9092]:
         for conn in psutil.net_connections():
             if conn.laddr.port == port and conn.status == 'LISTEN':
-                print(f"Force stopping active process on port {port}...")
-                kill_process_tree(conn.pid, f"Port {port}")
-    time.sleep(2) # Brief cooldown to let Windows release the ports
+                infra_is_running = True
+                
+    if infra_is_running:
+        kill = input("Zookeeper/Kafka are already running. Kill them? (y/n): ")
+        if kill.lower() == 'y':
+            for port in [2181, 9092]:
+                for conn in psutil.net_connections():
+                    if conn.laddr.port == port and conn.status == 'LISTEN':
+                        kill_process_tree(conn.pid, f"Port {port}")
+            infra_is_running = False
+            time.sleep(2)
 
-    # 2. Reset Logic Branching
-    reset = input("\nReset stream files and topics? (y/n): ").lower()
-    
+    # 2. Reset Logic
+    reset = input("\nReset stream files and topics (Hard Reset)? (y/n): ").lower()
     if reset == 'y':
+        # If user wants a reset but left Kafka running, we MUST kill it to delete logs
+        if infra_is_running:
+            print("Force closing Kafka/ZK to allow log deletion...")
+            for port in [2181, 9092]:
+                for conn in psutil.net_connections():
+                    if conn.laddr.port == port and conn.status == 'LISTEN':
+                        kill_process_tree(conn.pid, f"Port {port}")
+            time.sleep(2)
+            
         print("\n--- Hard Resetting Infrastructure ---")
-        print(f"Deleting physical Kafka logs from {KAFKA_LOG_DIR}...")
+        print(f"Deleting BOTH Kafka and ZK logs from {KAFKA_LOG_DIR} and {ZK_LOG_DIR}...")
         shutil.rmtree(KAFKA_LOG_DIR, ignore_errors=True)
         shutil.rmtree(ZK_LOG_DIR, ignore_errors=True)
         
@@ -132,20 +159,24 @@ def main():
         
         print("\n--- Recreating Kafka Topics ---")
         for topic in KAFKA_TOPICS:
-            print(f"Creating topic: {topic}")
-            cmd = f"kafka-topics.bat --create --topic {topic} --bootstrap-server localhost:9092 --partitions 1 --replication-factor 1"
+            print(f"Creating topic: {topic} (6 Partitions)")
+            cmd = fr"{KAFKA_BIN_DIR}\kafka-topics.bat --create --topic {topic} --bootstrap-server localhost:9092 --partitions 6 --replication-factor 1"
             subprocess.run(cmd, shell=True)
-            
-        print("\n--- Resetting Spark Delta Files ---")
+
+        print("\n--- Resetting Spark/Stream Files ---")
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
             subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="yes\n", text=True)
+            
         print("Stream reset success.")
-        
     else:
-        print("\n--- Resuming Existing Infrastructure ---")
-        run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
-        run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+        # If no reset is requested, only boot Kafka if it isn't already running
+        if not infra_is_running:
+            print("\n--- Booting Infrastructure ---")
+            run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
+            run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+        else:
+            print("\n--- Resuming Existing Infrastructure ---")
 
     # 3. Streamlit Apps
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
@@ -166,8 +197,8 @@ def main():
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'"{VENV_PYTHON}" {service}', f"Service_{name}", 20)
             
-        # 5. The Ingest Fix
-        run_background_task(f'"{VENV_PYTHON}" -m uvicorn ingest.app.main:app --host 0.0.0.0 --port 8000', "Service_Ingest", 5)
+        # Matches run_v1.py ingest startup identically
+        run_background_task(f'"{VENV_PYTHON}" -m uvicorn ingest.app.main:app --port 8000', "Service_Ingest", 5)
         
         print("\n" + "="*40)
         print("ALL SERVICES ACTIVE IN BACKGROUND")
