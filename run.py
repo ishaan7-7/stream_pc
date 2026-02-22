@@ -11,11 +11,17 @@ os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-VENV_PYTHON = r".venv\Scripts\python.exe"
+# --- THE CRITICAL VENV FIX ---
+VENV_SCRIPTS = os.path.abspath(os.path.join(".venv", "Scripts"))
+VENV_PYTHON = os.path.join(VENV_SCRIPTS, "python.exe")
 
 if not os.path.exists(VENV_PYTHON):
     print(f"Warning: {VENV_PYTHON} not found. Using system Python.")
     VENV_PYTHON = sys.executable 
+else:
+    # Inject the virtual environment into the system PATH.
+    # This accurately simulates running 'activate.bat', ensuring Uvicorn and DLLs load properly.
+    os.environ["PATH"] = VENV_SCRIPTS + os.pathsep + os.environ.get("PATH", "")
 
 # --- KAFKA CONFIGURATION ---
 KAFKA_BIN_DIR = r"C:\kafka\bin\windows"
@@ -140,7 +146,6 @@ def main():
     # 2. Reset Logic
     reset = input("\nReset stream files and topics (Hard Reset)? (y/n): ").lower()
     if reset == 'y':
-        # If user wants a reset but left Kafka running, we MUST kill it to delete logs
         if infra_is_running:
             print("Force closing Kafka/ZK to allow log deletion...")
             for port in [2181, 9092]:
@@ -166,11 +171,11 @@ def main():
         print("\n--- Resetting Spark/Stream Files ---")
         for script in RESET_SCRIPTS:
             print(f"Resetting {script}...")
-            subprocess.run(f'"{VENV_PYTHON}" {script}', shell=True, input="yes\n", text=True)
+            # Automatically feed "yes" + Enter to bypass prompts
+            subprocess.run(f'python {script}', shell=True, input="yes\n", text=True)
             
         print("Stream reset success.")
     else:
-        # If no reset is requested, only boot Kafka if it isn't already running
         if not infra_is_running:
             print("\n--- Booting Infrastructure ---")
             run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
@@ -182,7 +187,8 @@ def main():
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
     if start_ui == 'y':
         for app in STREAMLIT_APPS:
-            cmd = f'"{VENV_PYTHON}" -m streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
+            # Since PATH is injected, we can just call 'streamlit run' directly
+            cmd = f'streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
             run_background_task(cmd, app['name'])
             
             print(f"Waiting 5s for {app['name']} server to bind...")
@@ -195,10 +201,11 @@ def main():
     if start_serv == 'y':
         for service in SERVICES:
             name = service.split('\\')[-1].replace('.py', '')
-            run_background_task(f'"{VENV_PYTHON}" {service}', f"Service_{name}", 20)
+            run_background_task(f'python {service}', f"Service_{name}", 20)
             
-        # Matches run_v1.py ingest startup identically
-        run_background_task(f'"{VENV_PYTHON}" -m uvicorn ingest.app.main:app --port 8000', "Service_Ingest", 5)
+        # THE INGEST FIX: Because PATH is now injected globally, we can call Uvicorn directly
+        # exactly like you do in the manual terminal.
+        run_background_task("uvicorn ingest.app.main:app --port 8000", "Service_Ingest", 5)
         
         print("\n" + "="*40)
         print("ALL SERVICES ACTIVE IN BACKGROUND")
