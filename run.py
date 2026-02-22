@@ -85,8 +85,12 @@ def run_detached_console(cmd, name, wait_time=0):
     env = os.environ.copy()
     env["PYTHONPATH"] = os.getcwd()
     
-    # We use shell=True and env=env so the new window inherits our .venv PATH injection
-    proc = subprocess.Popen(cmd, shell=True, creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
+    # We explicitly invoke cmd.exe with /k to keep the window open on crash for visibility.
+    # The 'title' command gives the window the correct name.
+    full_cmd = f'title {name} && {cmd}'
+    proc = subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
+    
+    # proc.pid now correctly points to the active CMD executing the task, allowing clean kill.
     running_processes.append({"proc": proc, "name": name})
     
     if wait_time > 0:
@@ -191,7 +195,6 @@ def main():
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
     if start_ui == 'y':
         for app in STREAMLIT_APPS:
-            # Since PATH is injected, we can just call 'streamlit run' directly
             cmd = f'streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
             run_background_task(cmd, app['name'])
             
@@ -207,9 +210,8 @@ def main():
             name = service.split('\\')[-1].replace('.py', '')
             run_background_task(f'python {service}', f"Service_{name}", 20)
             
-        # THE INGEST FIX: Reverting to run_v1.py behavior!
-        # Opens in a dedicated CMD window so you can see the live Uvicorn logs.
-        run_detached_console('start "Service_Ingest" uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
+        # The 'start' command has been removed to preserve the correct process tree hierarchy.
+        run_detached_console('uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
         
         print("\n" + "="*40)
         print("ALL SERVICES ACTIVE IN BACKGROUND / DETACHED WINDOWS")
