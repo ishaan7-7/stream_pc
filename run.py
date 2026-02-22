@@ -6,12 +6,10 @@ import shutil
 import subprocess
 import webbrowser
 
-# Force UTF-8 encoding and unbuffered output for clean, instant logs
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-# --- THE CRITICAL VENV FIX ---
 VENV_SCRIPTS = os.path.abspath(os.path.join(".venv", "Scripts"))
 VENV_PYTHON = os.path.join(VENV_SCRIPTS, "python.exe")
 
@@ -19,16 +17,12 @@ if not os.path.exists(VENV_PYTHON):
     print(f"Warning: {VENV_PYTHON} not found. Using system Python.")
     VENV_PYTHON = sys.executable 
 else:
-    # Inject the virtual environment into the system PATH.
-    # This accurately simulates running 'activate.bat', ensuring Uvicorn and DLLs load properly.
     os.environ["PATH"] = VENV_SCRIPTS + os.pathsep + os.environ.get("PATH", "")
 
-# --- KAFKA CONFIGURATION ---
 KAFKA_BIN_DIR = r"C:\kafka\bin\windows"
 KAFKA_LOG_DIR = r"C:\tmp\kafka-logs"
 ZK_LOG_DIR = r"C:\tmp\zookeeper"
 
-# Topics exactly as required by ingest_config.json
 KAFKA_TOPICS = [
     "telemetry.battery", 
     "telemetry.body", 
@@ -47,13 +41,14 @@ STREAMLIT_APPS = [
     {"file": r"telemetry_observer\ui.py", "port": 8505, "name": "Observer_UI"}
 ]
 
-SERVICES = [
-    r"telemetry_observer\observer_backend.py",
-    r"alerts_service\app.py",
-    r"gold_service\app.py",
-    r"inference_service\start_inference_cluster.py",
-    r"writer_service\src\start_writer_cluster.py"
-]
+SERVICE_MAP = {
+    "telemetry_observer": (r"python telemetry_observer\observer_backend.py", False),
+    "alerts": (r"python alerts_service\app.py", False),
+    "gold": (r"python gold_service\app.py", False),
+    "inference": (r"python inference_service\start_inference_cluster.py", False),
+    "writer": (r"python writer_service\src\start_writer_cluster.py", False),
+    "ingest": (r"python -m uvicorn ingest.app.main:app --port 8000 --reload", True) 
+}
 
 RESET_SCRIPTS = [
     r"tools\reset_alerts_gold.py",
@@ -68,7 +63,7 @@ open_log_files = []
 
 def run_background_task(cmd, name, wait_time=0):
     print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
-    log_file = open(f"logs/{name}.log", "w", encoding="utf-8")
+    log_file = open(f"logs/{name}.log", "a", encoding="utf-8") 
     open_log_files.append(log_file)
     
     env = os.environ.copy()
@@ -93,25 +88,6 @@ def run_detached_console(cmd, name, wait_time=0):
     if wait_time > 0:
         time.sleep(wait_time)
 
-def run_untracked_console(cmd, name, wait_time=0):
-    """
-    run_v1.py behavior: Spawns an untracked window using Windows 'start'.
-    WARNING: The resulting process cannot be closed by cleanup().
-    """
-    print(f"--- Starting {name} in a new window (Untracked) ---")
-    env = os.environ.copy()
-    env["PYTHONPATH"] = os.getcwd()
-    
-    subprocess.Popen(
-        f'start "{name}" {cmd}', 
-        shell=True, 
-        creationflags=subprocess.CREATE_NEW_CONSOLE,
-        env=env
-    )
-    
-    if wait_time > 0:
-        time.sleep(wait_time)
-
 def kill_process_tree(pid, name):
     try:
         parent = psutil.Process(pid)
@@ -129,6 +105,31 @@ def kill_process_tree(pid, name):
     except Exception:
         pass
 
+def restart_service(service_key):
+    service_name = f"Service_{service_key}"
+    
+    target_idx = -1
+    for i, p_info in enumerate(running_processes):
+        if p_info['name'].lower() == service_name.lower():
+            target_idx = i
+            break
+            
+    if target_idx != -1:
+        p_info = running_processes[target_idx]
+        print(f"\n[RESTART] Terminating existing {p_info['name']} (PID: {p_info['proc'].pid})...")
+        kill_process_tree(p_info['proc'].pid, p_info['name'])
+        running_processes.pop(target_idx)
+        time.sleep(2) 
+    else:
+        print(f"\n[RESTART] {service_name} was not running. Starting fresh.")
+
+    cmd, is_detached = SERVICE_MAP[service_key]
+    if is_detached:
+        run_detached_console(cmd, service_name, 2)
+    else:
+        run_background_task(cmd, service_name, 2)
+    print(f"[RESTART] {service_name} is back online.\n")
+
 def cleanup():
     print("\n" + "="*40)
     print("SHUTDOWN SEQUENCE INITIATED")
@@ -145,14 +146,12 @@ def cleanup():
         except: pass
             
     print("\nStream offline. All detached windows and background services closed.")
-    print("WARNING: You must manually close the Service_Ingest window!")
     sys.exit(0)
 
 def main():
     infra_is_running = False
 
     print("\nChecking Infrastructure State...")
-    # 1. Check if Kafka/ZK are alive
     for port in [2181, 9092]:
         for conn in psutil.net_connections():
             if conn.laddr.port == port and conn.status == 'LISTEN':
@@ -168,7 +167,6 @@ def main():
             infra_is_running = False
             time.sleep(2)
 
-    # 2. Reset Logic
     reset = input("\nReset stream files and topics (Hard Reset)? (y/n): ").lower()
     if reset == 'y':
         if infra_is_running:
@@ -180,7 +178,6 @@ def main():
             time.sleep(2)
             
         print("\n--- Hard Resetting Infrastructure ---")
-        print(f"Deleting BOTH Kafka and ZK logs from {KAFKA_LOG_DIR} and {ZK_LOG_DIR}...")
         shutil.rmtree(KAFKA_LOG_DIR, ignore_errors=True)
         shutil.rmtree(ZK_LOG_DIR, ignore_errors=True)
         
@@ -189,16 +186,13 @@ def main():
         
         print("\n--- Recreating Kafka Topics ---")
         for topic in KAFKA_TOPICS:
-            print(f"Creating topic: {topic} (6 Partitions)")
             cmd = fr"{KAFKA_BIN_DIR}\kafka-topics.bat --create --topic {topic} --bootstrap-server localhost:9092 --partitions 6 --replication-factor 1"
             subprocess.run(cmd, shell=True)
 
         print("\n--- Resetting Spark/Stream Files ---")
         for script in RESET_SCRIPTS:
-            print(f"Resetting {script}...")
             subprocess.run(f'python {script}', shell=True, input="yes\n", text=True)
             
-        print("Stream reset success.")
     else:
         if not infra_is_running:
             print("\n--- Booting Infrastructure ---")
@@ -207,38 +201,49 @@ def main():
         else:
             print("\n--- Resuming Existing Infrastructure ---")
 
-    # 3. Streamlit Apps
     start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
     if start_ui == 'y':
         for app in STREAMLIT_APPS:
             cmd = f'streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
             run_background_task(cmd, app['name'])
-            
-            print(f"Waiting 5s for {app['name']} server to bind...")
             time.sleep(5) 
             webbrowser.open(f"http://localhost:{app['port']}")
             time.sleep(15) 
 
-    # 4. Services
     start_serv = input("\nStart Services? (y/n): ").lower()
     if start_serv == 'y':
-        for service in SERVICES:
-            name = service.split('\\')[-1].replace('.py', '')
-            run_background_task(f'python {service}', f"Service_{name}", 20)
-            
-        # Hard requirement: run_v1.py style untracked launch for Ingest
-        run_untracked_console('python -m uvicorn ingest.app.main:app --port 8000 --reload', "Service_Ingest", 5)
-        
-        print("\n" + "="*40)
-        print("ALL SERVICES ACTIVE IN BACKGROUND / DETACHED WINDOWS")
-        print("Action: Start replay using the Notebook.")
-        print("Press Ctrl+C in THIS terminal to safely shut everything down.")
-        print("="*40)
+        for service_key, (cmd, is_detached) in SERVICE_MAP.items():
+            service_name = f"Service_{service_key}"
+            if is_detached:
+                run_detached_console(cmd, service_name, 5)
+            else:
+                run_background_task(cmd, service_name, 10)
+
+    print("\n" + "="*50)
+    print("ALL SERVICES ACTIVE.")
+    print("Action: Start replay using the Notebook.")
+    print("="*50)
+    
+    print("\nINTERACTIVE SERVICE MANAGER")
+    print(f"Available services to restart: {list(SERVICE_MAP.keys())}")
+    print("Type a service name and press Enter to restart it.")
+    print("Press Ctrl+C at any time to safely shut down the entire emulator.")
+    
+    while True:
+        try:
+            target = input("\nemulator> ").strip().lower()
+            if target in SERVICE_MAP:
+                restart_service(target)
+            elif target:
+                print(f"Unknown service '{target}'. Valid options: {list(SERVICE_MAP.keys())}")
+        except KeyboardInterrupt:
+            # Catch the Ctrl+C here to break the input loop and trigger cleanup naturally
+            break
 
 if __name__ == "__main__":
     try:
         main()
-        while True:
-            time.sleep(1)
     except KeyboardInterrupt:
+        pass # Caught by the inner loop or general execution, proceed to cleanup
+    finally:
         cleanup()
