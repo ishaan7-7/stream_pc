@@ -2,12 +2,13 @@ import React, { useMemo, useState } from 'react';
 import { 
   Box, Typography, Paper, Chip, Select, MenuItem, 
   FormControl, InputLabel, ToggleButton, ToggleButtonGroup, 
-  Divider, Grid 
+  Divider, Button 
 } from '@mui/material';
+import RefreshIcon from '@mui/icons-material/Refresh';
 import { AgGridReact } from 'ag-grid-react';
 import type { ColDef } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-balham.css'; // Using the dense, industrial theme
+import 'ag-grid-community/styles/ag-theme-balham.css';
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useStore } from '../store';
@@ -20,13 +21,13 @@ const fetchWriterMetrics = async () => {
 
 const fetchInspectorData = async (module: string) => {
   const { data } = await axios.get(`http://127.0.0.1:8005/api/writer/inspector/${module}`);
-  return data.data; // The backend returns { data: [...] }
+  return data.data; 
 };
 
 export default function WriterOps() {
   const { autoRefresh } = useStore();
   
-  // Local State for standard PowerBI-like slice/dice
+  // Local State
   const [viewMode, setViewMode] = useState<'operations' | 'inspector'>('operations');
   const [selectedModule, setSelectedModule] = useState<string>('engine');
   const [filterModule, setFilterModule] = useState<string>('ALL');
@@ -38,11 +39,11 @@ export default function WriterOps() {
     refetchInterval: (viewMode === 'operations' && autoRefresh) ? 2000 : false,
   });
 
-  const { data: inspectorData, isLoading: inspectorLoading } = useQuery({
+  const { data: inspectorData, isLoading: inspectorLoading, refetch: refetchInspector } = useQuery({
     queryKey: ['writerInspector', selectedModule],
     queryFn: () => fetchInspectorData(selectedModule),
     enabled: viewMode === 'inspector',
-    refetchInterval: false, // Do not auto-refresh inspector to prevent UI jumping
+    refetchInterval: false, 
   });
 
   // --- OPERATIONS BOARD LOGIC ---
@@ -55,7 +56,6 @@ export default function WriterOps() {
     return rows;
   }, [metricsData, filterModule]);
 
-  // Aggregate stats for the top cards
   const summaryStats = useMemo(() => {
     if (!metricsRowData.length) return { active: 0, written: 0, lag: 0, latency: 0 };
     const active = metricsRowData.filter(r => r.status === 'RUNNING').length;
@@ -97,18 +97,20 @@ export default function WriterOps() {
       headerName: 'SYSTEM LAG', 
       width: 140, 
       type: 'numericColumn',
-      cellStyle: params => params.value > 100 ? { color: '#d32f2f', fontWeight: 'bold' } : { color: '#2e7d32' },
+      cellStyle: (params: any): any => {
+        if (params.value > 100) return { color: '#d32f2f', fontWeight: 'bold' };
+        return { color: '#2e7d32' };
+      },
       valueFormatter: p => p.value?.toLocaleString() 
     },
     { field: 'throughput', headerName: 'IN RATE (r/s)', width: 130, type: 'numericColumn' },
     { field: 'processed', headerName: 'OUT RATE (r/s)', width: 130, type: 'numericColumn' },
-    { field: 'latency_ms', headerName: 'LATENCY (ms)', width: 130, type: 'numericColumn' },
+    { field: 'latency_ms', headerName: 'LATENCY (ms)', flex: 1, type: 'numericColumn' }, // flex: 1 makes this column fill remaining empty space
   ], []);
 
   // --- INSPECTOR LOGIC ---
   const inspectorColumnDefs = useMemo<ColDef[]>(() => {
     if (!inspectorData || inspectorData.length === 0) return [];
-    // Dynamically build columns based on the keys of the first row
     return Object.keys(inspectorData[0]).map(key => ({
       field: key,
       headerName: key.toUpperCase(),
@@ -144,22 +146,20 @@ export default function WriterOps() {
       {/* VIEW 1: OPERATIONS BOARD */}
       {viewMode === 'operations' && (
         <>
-          {/* KPI CARDS */}
-          <Grid container spacing={2}>
+          {/* KPI CARDS (Using Box with flex layout instead of Grid to avoid v5/v6 compatibility issues) */}
+          <Box sx={{ display: 'flex', gap: 2, width: '100%' }}>
             {[
               { label: 'ACTIVE WRITERS', value: `${summaryStats.active} / 5` },
               { label: 'TOTAL WRITTEN', value: summaryStats.written.toLocaleString() },
               { label: 'GLOBAL LAG', value: summaryStats.lag.toLocaleString(), color: summaryStats.lag > 500 ? '#d32f2f' : '#2e7d32' },
               { label: 'AVG LATENCY', value: `${summaryStats.latency.toFixed(1)} ms` }
             ].map((kpi, idx) => (
-              <Grid item xs={3} key={idx}>
-                <Paper sx={{ p: 2, borderRadius: 0, borderLeft: '4px solid #424242' }}>
-                  <Typography variant="caption" sx={{ color: '#757575', fontWeight: 'bold' }}>{kpi.label}</Typography>
-                  <Typography variant="h5" sx={{ fontWeight: 'bold', color: kpi.color || '#212121', mt: 0.5 }}>{kpi.value}</Typography>
-                </Paper>
-              </Grid>
+              <Paper key={idx} sx={{ flex: 1, p: 2, borderRadius: 0, borderLeft: '4px solid #424242' }}>
+                <Typography variant="caption" sx={{ color: '#757575', fontWeight: 'bold' }}>{kpi.label}</Typography>
+                <Typography variant="h5" sx={{ fontWeight: 'bold', color: kpi.color || '#212121', mt: 0.5 }}>{kpi.value}</Typography>
+              </Paper>
             ))}
-          </Grid>
+          </Box>
 
           {/* GLOBAL FILTER BAR */}
           <Paper sx={{ p: 1, borderRadius: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
@@ -182,13 +182,13 @@ export default function WriterOps() {
             </FormControl>
           </Paper>
 
-          {/* DENSE GRID */}
-          <Paper sx={{ flexGrow: 1, p: 0, borderRadius: 0, overflow: 'hidden' }}>
-            <Box className="ag-theme-balham" sx={{ height: '100%', width: '100%' }}>
+          {/* DENSE GRID - FIXED CSS TO PREVENT HEIGHT COLLAPSE */}
+          <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', p: 0, borderRadius: 0, overflow: 'hidden', minHeight: '300px' }}>
+            <Box className="ag-theme-balham" sx={{ flexGrow: 1, width: '100%', height: '100%' }}>
               <AgGridReact
                 rowData={metricsRowData}
                 columnDefs={metricsColumnDefs}
-                animateRows={false} // Disabled for industrial performance
+                animateRows={false} 
                 rowSelection="single"
                 defaultColDef={{ resizable: true, sortable: true }}
                 overlayLoadingTemplate={metricsLoading ? '<span class="ag-overlay-loading-center">Fetching Telemetry...</span>' : undefined}
@@ -201,7 +201,7 @@ export default function WriterOps() {
 
       {/* VIEW 2: DATA INSPECTOR */}
       {viewMode === 'inspector' && (
-        <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', borderRadius: 0, p: 2 }}>
+        <Paper sx={{ flexGrow: 1, display: 'flex', flexDirection: 'column', borderRadius: 0, p: 2, minHeight: '400px' }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, mb: 2 }}>
              <FormControl size="small" sx={{ minWidth: 250 }}>
               <InputLabel>Target Parquet Module</InputLabel>
@@ -218,20 +218,32 @@ export default function WriterOps() {
                 <MenuItem value="tyre">TYRE</MenuItem>
               </Select>
             </FormControl>
-            <Typography variant="caption" color="textSecondary">
-              *Inspector fetches the latest 5 records committed to the Bronze layer. Auto-refresh is disabled in this view.
+            
+            <Button 
+              variant="contained" 
+              color="primary" 
+              onClick={() => refetchInspector()}
+              disabled={inspectorLoading}
+              startIcon={<RefreshIcon />}
+              sx={{ borderRadius: 0, fontWeight: 'bold', height: '40px', boxShadow: 'none' }}
+            >
+              FETCH LATEST ROWS
+            </Button>
+
+            <Typography variant="caption" color="textSecondary" sx={{ ml: 2 }}>
+              *Inspector reads raw parquet files directly from disk. Auto-refresh disabled.
             </Typography>
           </Box>
 
           <Divider sx={{ mb: 2 }} />
 
-          <Box className="ag-theme-balham" sx={{ flexGrow: 1, width: '100%' }}>
+          <Box className="ag-theme-balham" sx={{ flexGrow: 1, width: '100%', minHeight: '300px' }}>
             <AgGridReact
               rowData={inspectorData || []}
               columnDefs={inspectorColumnDefs}
               defaultColDef={{ resizable: true, sortable: true, filter: true }}
               overlayLoadingTemplate={inspectorLoading ? '<span class="ag-overlay-loading-center">Scanning Parquet...</span>' : undefined}
-              overlayNoRowsTemplate='<span class="ag-overlay-loading-center">No Parquet Data Available</span>'
+              overlayNoRowsTemplate='<span class="ag-overlay-loading-center">No Parquet Data Available in Bronze Layer</span>'
             />
           </Box>
         </Paper>
