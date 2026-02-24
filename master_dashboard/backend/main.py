@@ -151,7 +151,7 @@ def get_writer_metrics():
 
 @app.get("/api/writer/inspector/{module}")
 def get_writer_inspector(module: str):
-    """Powers the 'Data Inspector' view"""
+    """Powers the 'Data Inspector' view - fetches exact 100 rows across multiple partitions"""
     if module not in VEHICLE_MODULES:
         raise HTTPException(status_code=400, detail="Invalid module")
         
@@ -168,20 +168,35 @@ def get_writer_inspector(module: str):
     if not files: 
         return {"data": []}
         
+    # Sort files by newest modified time
     files.sort(key=os.path.getmtime, reverse=True)
     
+    data_frames = []
     try:
-        for f in files[:3]: 
+        # Read the last 10 parquet files to guarantee we have enough rows
+        for f in files[:10]: 
             df = pd.read_parquet(f)
             if not df.empty:
-                if "ingest_ts" in df.columns:
-                    df["ingest_ts"] = pd.to_datetime(df["ingest_ts"]).astype(str)
-                    df = df.sort_values("ingest_ts", ascending=False)
-                # Convert timestamps and NaNs for JSON serialization
-                df = df.fillna(0)
-                for col in df.select_dtypes(include=['datetime64[ns]']).columns:
-                    df[col] = df[col].astype(str)
-                return {"data": df.head(5).to_dict(orient="records")}
+                data_frames.append(df)
+                
+        if not data_frames:
+            return {"data": []}
+            
+        # Concatenate them all together into one giant dataframe
+        combined_df = pd.concat(data_frames, ignore_index=True)
+        
+        if "ingest_ts" in combined_df.columns:
+            combined_df["ingest_ts"] = pd.to_datetime(combined_df["ingest_ts"]).astype(str)
+            combined_df = combined_df.sort_values("ingest_ts", ascending=False)
+            
+        # Convert timestamps and NaNs for JSON serialization
+        combined_df = combined_df.fillna(0)
+        for col in combined_df.select_dtypes(include=['datetime64[ns]']).columns:
+            combined_df[col] = combined_df[col].astype(str)
+            
+        # Return exactly 100 rows from the combined dataset
+        return {"data": combined_df.head(100).to_dict(orient="records")}
+        
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
         
