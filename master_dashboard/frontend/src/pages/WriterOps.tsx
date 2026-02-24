@@ -47,7 +47,6 @@ export default function WriterOps() {
   ], []);
 
   return (
-    // Change height from '100%' to 'calc(100vh - 100px)'
     <Box sx={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Typography variant="h6" color="primary" sx={{ borderBottom: '2px solid #2c3e50', pb: 1 }}>
         System Operations: Writer Pipeline
@@ -55,15 +54,18 @@ export default function WriterOps() {
       
       {isError && <Typography color="error">Error connecting to Master Backend.</Typography>}
       
-      <Paper sx={{ flexGrow: 1, overflow: 'hidden', borderRadius: 0, p: 1 }} className="ag-theme-alpine">
-        <AgGridReact
-          rowData={rowData}
-          columnDefs={columnDefs}
-          rowSelection="single"
-          animateRows={true}
-          defaultColDef={{ resizable: true, sortable: true }}
-          overlayLoadingTemplate={isLoading ? '<span class="ag-overlay-loading-center">Loading Metrics...</span>' : undefined}
-        />
+      {/* ADDED display: flex and a strict wrapper with minHeight */}
+      <Paper sx={{ flexGrow: 1, overflow: 'hidden', borderRadius: 0, p: 1, display: 'flex', flexDirection: 'column' }}>
+        <Box className="ag-theme-alpine" sx={{ flexGrow: 1, width: '100%', minHeight: '500px' }}>
+          <AgGridReact
+            rowData={rowData}
+            columnDefs={columnDefs}
+            rowSelection="single"
+            animateRows={true}
+            defaultColDef={{ resizable: true, sortable: true }}
+            overlayLoadingTemplate={isLoading ? '<span class="ag-overlay-loading-center">Loading Metrics...</span>' : undefined}
+          />
+        </Box>
       </Paper>
     </Box>
   );
