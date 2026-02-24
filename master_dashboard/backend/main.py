@@ -1,11 +1,9 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import ORJSONResponse
 
 app = FastAPI(
     title="Master Dashboard API",
-    description="Read-only data aggregator for the streaming emulator",
-    default_response_class=ORJSONResponse
+    description="Read-only data aggregator for the streaming emulator"
 )
 
 app.add_middleware(
