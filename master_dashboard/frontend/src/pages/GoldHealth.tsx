@@ -49,7 +49,8 @@ export default function GoldHealth() {
   ], []);
 
   return (
-    <Box sx={{ height: '100%', display: 'flex', flexDirection: 'column', gap: 2 }}>
+    // Change height from '100%' to 'calc(100vh - 100px)'
+    <Box sx={{ height: 'calc(100vh - 100px)', display: 'flex', flexDirection: 'column', gap: 2 }}>
       <Typography variant="h6" color="primary" sx={{ borderBottom: '2px solid #2c3e50', pb: 1 }}>
         Fleet Overview: Vehicle Health (Gold Tier)
       </Typography>
