@@ -14,13 +14,19 @@ app = FastAPI(
     description="Read-only data aggregator and execution layer"
 )
 
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"], 
+    allow_origins=[
+        "http://localhost:3000", 
+        "http://localhost:5173", 
+        "http://127.0.0.1:5173"
+    ], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VEHICLE_MODULES = ["battery", "body", "engine", "transmission", "tyre"]
