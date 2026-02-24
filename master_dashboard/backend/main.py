@@ -7,7 +7,7 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from confluent_kafka import Consumer, TopicPartition
-from utils import safe_read_json
+from utils import safe_read_json, safe_read_pickle
 
 app = FastAPI(
     title="Master Dashboard API",
@@ -25,9 +25,10 @@ app.add_middleware(
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VEHICLE_MODULES = ["battery", "body", "engine", "transmission", "tyre"]
 DELTA_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "bronze")
+SILVER_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "silver")
 KAFKA_BROKER = "localhost:9092"
 
-# --- CACHE FOR HIGH-FREQUENCY POLLING ---
+# --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
     module: {
         "module": module.upper(),
@@ -39,6 +40,15 @@ WRITER_METRICS_CACHE = {
         "processed": "0.0",
         "latency_ms": 0
     } for module in VEHICLE_MODULES
+}
+
+INFERENCE_METRICS_CACHE = {
+    "active_sims": 0,
+    "active_modules": 0,
+    "global_e2e_ms": 0,
+    "global_inf_ms": 0,
+    "module_stats": {},
+    "recent_alerts": []
 }
 
 class TelemetryBackend:
@@ -131,33 +141,120 @@ async def update_writer_metrics_loop():
                     "latency_ms": stream_data.get("duration_ms", 0)
                 }
         except Exception as e:
-            print(f"Background metric update failed: {e}")
+            print(f"Writer metric update failed: {e}")
+        await asyncio.sleep(2)
+
+async def update_inference_metrics_loop():
+    """Profiles the Silver layer and alerts for the ML Engine Dashboard"""
+    while True:
+        try:
+            # 1. Load System Alerts (Last 5 mins)
+            all_alerts = []
+            for mod in VEHICLE_MODULES:
+                alerts_file = os.path.join(PROJECT_ROOT, "inference_service", "state", f"system_alerts_{mod}.json")
+                alerts = safe_read_json(alerts_file)
+                if alerts:
+                    all_alerts.extend(alerts)
+
+            cutoff_dt = pd.Timestamp.utcnow() - pd.Timedelta(minutes=5)
+            recent_alerts = []
+            for a in all_alerts:
+                try:
+                    alert_time = pd.to_datetime(a['timestamp'], utc=True)
+                    if alert_time >= cutoff_dt:
+                        recent_alerts.append(a)
+                except: pass
+            recent_alerts.sort(key=lambda x: x['timestamp'], reverse=True)
+
+            # 2. Compute Silver Metrics
+            sims = set()
+            module_stats = {}
+            e2e_list = []
+            inf_list = []
+
+            for mod in VEHICLE_MODULES:
+                path = os.path.join(SILVER_ROOT, mod)
+                if not os.path.exists(path): continue
+
+                files = []
+                for r, d, f in os.walk(path):
+                    for file in f:
+                        if file.endswith(".parquet"):
+                            files.append(os.path.join(r, file))
+                files.sort(key=os.path.getmtime, reverse=True)
+
+                dfs = []
+                for f in files[:5]: # Check recent parquets for 5-minute window
+                    try:
+                        df = pd.read_parquet(f)
+                        if not df.empty and 'inference_ts' in df.columns:
+                            df['inference_ts'] = pd.to_datetime(df['inference_ts'], utc=True)
+                            df = df[df['inference_ts'] >= cutoff_dt]
+                            if not df.empty:
+                                dfs.append(df)
+                    except: pass
+
+                if dfs:
+                    combined_df = pd.concat(dfs, ignore_index=True)
+                    combined_df['ingest_ts'] = pd.to_datetime(combined_df.get('ingest_ts', pd.NaT), utc=True)
+
+                    e2e = (combined_df['inference_ts'] - combined_df['ingest_ts']).dt.total_seconds() * 1000
+                    
+                    if 'writer_ts' in combined_df.columns:
+                        combined_df['writer_ts'] = pd.to_datetime(combined_df['writer_ts'], utc=True)
+                        inf = (combined_df['inference_ts'] - combined_df['writer_ts']).dt.total_seconds() * 1000
+                    else:
+                        inf = e2e
+
+                    e2e_mean = e2e.mean()
+                    inf_mean = inf.mean()
+
+                    e2e_list.append(e2e_mean)
+                    inf_list.append(inf_mean)
+
+                    if 'source_id' in combined_df.columns:
+                        sims.update(combined_df['source_id'].unique().tolist())
+
+                    module_stats[mod.upper()] = {
+                        "e2e_latency": round(e2e_mean, 1) if pd.notna(e2e_mean) else 0,
+                        "inf_latency": round(inf_mean, 1) if pd.notna(inf_mean) else 0,
+                        "rows_5m": len(combined_df)
+                    }
+
+            # Update Cache
+            INFERENCE_METRICS_CACHE["active_sims"] = len(sims)
+            INFERENCE_METRICS_CACHE["active_modules"] = len(module_stats)
+            INFERENCE_METRICS_CACHE["global_e2e_ms"] = round(sum(e2e_list)/len(e2e_list), 1) if e2e_list else 0
+            INFERENCE_METRICS_CACHE["global_inf_ms"] = round(sum(inf_list)/len(inf_list), 1) if inf_list else 0
+            INFERENCE_METRICS_CACHE["module_stats"] = module_stats
+            INFERENCE_METRICS_CACHE["recent_alerts"] = recent_alerts[:10]
+
+        except Exception as e:
+            print(f"Inference metrics loop failed: {e}")
+            
         await asyncio.sleep(2)
 
 @app.on_event("startup")
 async def startup_event():
     asyncio.create_task(update_writer_metrics_loop())
+    asyncio.create_task(update_inference_metrics_loop())
 
 @app.get("/health")
 def health_check():
     return {"status": "Master Dashboard Backend is Online", "port": 8005}
 
 # --- WRITER OPS ENDPOINTS ---
-
 @app.get("/api/writer/metrics")
 def get_writer_metrics():
-    """Powers the 'Operations Board' view"""
     return WRITER_METRICS_CACHE
 
 @app.get("/api/writer/inspector/{module}")
 def get_writer_inspector(module: str):
-    """Powers the 'Data Inspector' view - fetches exact 100 rows across multiple partitions"""
     if module not in VEHICLE_MODULES:
         raise HTTPException(status_code=400, detail="Invalid module")
         
     path = os.path.join(DELTA_ROOT, module)
-    if not os.path.exists(path): 
-        return {"data": []}
+    if not os.path.exists(path): return {"data": []}
         
     files = []
     for root, _, filenames in os.walk(path):
@@ -165,15 +262,11 @@ def get_writer_inspector(module: str):
             if f.endswith(".parquet"):
                 files.append(os.path.join(root, f))
                 
-    if not files: 
-        return {"data": []}
-        
-    # Sort files by newest modified time
+    if not files: return {"data": []}
     files.sort(key=os.path.getmtime, reverse=True)
     
     data_frames = []
     try:
-        # Read the last 10 parquet files to guarantee we have enough rows
         for f in files[:10]: 
             df = pd.read_parquet(f)
             if not df.empty:
@@ -182,25 +275,68 @@ def get_writer_inspector(module: str):
         if not data_frames:
             return {"data": []}
             
-        # Concatenate them all together into one giant dataframe
         combined_df = pd.concat(data_frames, ignore_index=True)
-        
         if "ingest_ts" in combined_df.columns:
             combined_df["ingest_ts"] = pd.to_datetime(combined_df["ingest_ts"]).astype(str)
             combined_df = combined_df.sort_values("ingest_ts", ascending=False)
             
-        # Convert timestamps and NaNs for JSON serialization
         combined_df = combined_df.fillna(0)
         for col in combined_df.select_dtypes(include=['datetime64[ns]']).columns:
             combined_df[col] = combined_df[col].astype(str)
             
-        # Return exactly 100 rows from the combined dataset
         return {"data": combined_df.head(100).to_dict(orient="records")}
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+# --- INFERENCE OPS ENDPOINTS ---
+@app.get("/api/inference/metrics")
+def get_inference_metrics():
+    """Powers the KPI metrics, alerts, and latency breakdown."""
+    return INFERENCE_METRICS_CACHE
+
+@app.get("/api/inference/tail/{module}")
+def get_inference_tail(module: str):
+    """Powers the Live Silver Data (Tail) view"""
+    if module not in VEHICLE_MODULES:
+        raise HTTPException(status_code=400, detail="Invalid module")
         
-    return {"data": []}
+    path = os.path.join(SILVER_ROOT, module)
+    if not os.path.exists(path): return {"data": []}
+        
+    files = []
+    for root, _, filenames in os.walk(path):
+        for f in filenames:
+            if f.endswith(".parquet"):
+                files.append(os.path.join(root, f))
+                
+    if not files: return {"data": []}
+    files.sort(key=os.path.getmtime, reverse=True)
+    
+    data_frames = []
+    try:
+        for f in files[:10]: 
+            df = pd.read_parquet(f)
+            if not df.empty:
+                data_frames.append(df)
+                
+        if not data_frames:
+            return {"data": []}
+            
+        combined_df = pd.concat(data_frames, ignore_index=True)
+        if "inference_ts" in combined_df.columns:
+            combined_df["inference_ts"] = pd.to_datetime(combined_df["inference_ts"]).astype(str)
+            combined_df = combined_df.sort_values("inference_ts", ascending=False)
+            
+        combined_df = combined_df.fillna(0)
+        # Handle both timezone-naive and timezone-aware datetimes generated by PyTorch/Spark
+        for col in combined_df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
+            combined_df[col] = combined_df[col].astype(str)
+            
+        return {"data": combined_df.head(100).to_dict(orient="records")}
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 if __name__ == "__main__":
     import uvicorn
