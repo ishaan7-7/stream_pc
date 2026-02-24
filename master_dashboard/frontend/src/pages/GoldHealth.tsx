@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { AgGridReact } from 'ag-grid-react';
+import { ColDef } from 'ag-grid-community'; // <-- 1. Import ColDef
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { useQuery } from '@tanstack/react-query';
@@ -23,14 +24,14 @@ export default function GoldHealth() {
 
   const rowData = useMemo(() => {
     if (!data) return [];
-    // Convert dict of dicts into an array
     return Object.keys(data).map((vehicleId) => ({
       vehicle_id: vehicleId.toUpperCase(),
       ...data[vehicleId]
     }));
   }, [data]);
 
-  const columnDefs = useMemo(() => [
+  // 2. Add <ColDef[]> here to satisfy TypeScript
+  const columnDefs = useMemo<ColDef[]>(() => [
     { field: 'vehicle_id', headerName: 'Vehicle ID', sortable: true, filter: true, pinned: 'left' },
     { 
       field: 'overall_health', 

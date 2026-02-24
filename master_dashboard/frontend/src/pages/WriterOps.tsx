@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Box, Typography, Paper, Chip } from '@mui/material';
 import { AgGridReact } from 'ag-grid-react';
+import { ColDef } from 'ag-grid-community'; // <-- 1. Import ColDef
 import 'ag-grid-community/styles/ag-grid.css';
 import 'ag-grid-community/styles/ag-theme-alpine.css';
 import { useQuery } from '@tanstack/react-query';
@@ -18,20 +19,20 @@ export default function WriterOps() {
   const { data, isLoading, isError } = useQuery({
     queryKey: ['writerMetrics'],
     queryFn: fetchWriterMetrics,
-    refetchInterval: autoRefresh ? 2000 : false, // Polls every 2s if Auto-Refresh is ON
+    refetchInterval: autoRefresh ? 2000 : false,
   });
 
-  // Transform the dictionary response into a flat array for the grid
   const rowData = useMemo(() => {
     if (!data) return [];
     return Object.keys(data).map((moduleName) => ({
       module: moduleName.toUpperCase(),
-      status: 'ACTIVE', // If it's in the JSON, it's active
+      status: 'ACTIVE',
       ...data[moduleName]
     }));
   }, [data]);
 
-  const columnDefs = useMemo(() => [
+  // 2. Add <ColDef[]> here
+  const columnDefs = useMemo<ColDef[]>(() => [
     { field: 'module', headerName: 'Subsystem', sortable: true, filter: true, flex: 1 },
     { 
       field: 'status', 
