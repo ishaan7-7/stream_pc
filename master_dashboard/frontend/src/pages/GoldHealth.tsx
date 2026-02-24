@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { Box, Typography, Paper } from '@mui/material';
 import { AgGridReact } from 'ag-grid-react';
-import { ColDef } from 'ag-grid-community'; // <-- 1. Import ColDef
+import type { ColDef } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-alpine.css';
+import 'ag-grid-community/styles/ag-theme-quartz.css'; // Updated to Quartz theme
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useStore } from '../store';
@@ -24,28 +24,47 @@ export default function GoldHealth() {
 
   const rowData = useMemo(() => {
     if (!data) return [];
-    return Object.keys(data).map((vehicleId) => ({
-      vehicle_id: vehicleId.toUpperCase(),
-      ...data[vehicleId]
-    }));
+    return Object.keys(data).map((vehicleId) => {
+      const simData = data[vehicleId];
+      
+      // Calculate overall health across all active modules
+      let totalHealth = 0;
+      let count = 0;
+      for (const mod in simData) {
+        if (simData[mod] && simData[mod].health !== undefined) {
+          totalHealth += simData[mod].health;
+          count++;
+        }
+      }
+      const avgHealth = count > 0 ? (totalHealth / count) : 100;
+      
+      let status = 'HEALTHY';
+      if (avgHealth < 50) status = 'CRITICAL';
+      else if (avgHealth < 80) status = 'WARNING';
+
+      return {
+        vehicle_id: vehicleId.toUpperCase(),
+        overall_health: status,
+        score: avgHealth.toFixed(1) + '%',
+      };
+    });
   }, [data]);
 
-  // 2. Add <ColDef[]> here to satisfy TypeScript
   const columnDefs = useMemo<ColDef[]>(() => [
-    { field: 'vehicle_id', headerName: 'Vehicle ID', sortable: true, filter: true, pinned: 'left' },
+    { field: 'vehicle_id', headerName: 'Vehicle ID', sortable: true, filter: true, pinned: 'left', flex: 1 },
     { 
       field: 'overall_health', 
       headerName: 'Fleet Status', 
       sortable: true, 
       filter: true,
+      flex: 1,
       cellStyle: (params: any) => {
         if (params.value === 'CRITICAL') return { backgroundColor: '#ffebee', color: '#d32f2f', fontWeight: 'bold' };
         if (params.value === 'WARNING') return { backgroundColor: '#fff8e1', color: '#ed6c02', fontWeight: 'bold' };
         return { backgroundColor: '#e8f5e9', color: '#2e7d32', fontWeight: 'bold' };
       }
     },
-    { field: 'active_dtcs', headerName: 'Active DTCs', sortable: true, filter: 'agNumberColumnFilter' },
-    { field: 'last_updated', headerName: 'Last Telemetry Sync', sortable: true },
+    { field: 'score', headerName: 'Health Score', sortable: true, flex: 1 },
   ], []);
 
   return (
@@ -54,9 +73,8 @@ export default function GoldHealth() {
         Fleet Overview: Vehicle Health (Gold Tier)
       </Typography>
       
-      {/* ADDED display: flex and a strict wrapper with minHeight */}
       <Paper sx={{ flexGrow: 1, overflow: 'hidden', borderRadius: 0, p: 1, display: 'flex', flexDirection: 'column' }}>
-        <Box className="ag-theme-alpine" sx={{ flexGrow: 1, width: '100%', minHeight: '500px' }}>
+        <Box className="ag-theme-quartz" sx={{ flexGrow: 1, width: '100%', minHeight: '500px' }}>
           <AgGridReact
             rowData={rowData}
             columnDefs={columnDefs}

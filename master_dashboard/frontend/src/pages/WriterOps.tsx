@@ -1,9 +1,9 @@
 import { useMemo } from 'react';
 import { Box, Typography, Paper, Chip } from '@mui/material';
 import { AgGridReact } from 'ag-grid-react';
-import { ColDef } from 'ag-grid-community'; // <-- 1. Import ColDef
+import type { ColDef } from 'ag-grid-community';
 import 'ag-grid-community/styles/ag-grid.css';
-import 'ag-grid-community/styles/ag-theme-alpine.css';
+import 'ag-grid-community/styles/ag-theme-quartz.css'; // Updated to modern Quartz theme
 import { useQuery } from '@tanstack/react-query';
 import axios from 'axios';
 import { useStore } from '../store';
@@ -24,26 +24,38 @@ export default function WriterOps() {
 
   const rowData = useMemo(() => {
     if (!data) return [];
-    return Object.keys(data).map((moduleName) => ({
-      module: moduleName.toUpperCase(),
-      status: 'ACTIVE',
-      ...data[moduleName]
-    }));
+    return Object.keys(data).map((moduleName) => {
+      // Safely extract the nested streams data from the JSON
+      const modData = data[moduleName] || {};
+      const stream = modData.streams?.[moduleName] || {};
+      
+      return {
+        module: moduleName.toUpperCase(),
+        status: modData.status || 'OFFLINE',
+        throughput: stream.input_rate ? parseFloat(stream.input_rate).toFixed(1) : "0.0",
+        processed: stream.process_rate ? parseFloat(stream.process_rate).toFixed(1) : "0.0",
+        latency: stream.duration_ms || 0
+      };
+    });
   }, [data]);
 
-  // 2. Add <ColDef[]> here
   const columnDefs = useMemo<ColDef[]>(() => [
     { field: 'module', headerName: 'Subsystem', sortable: true, filter: true, flex: 1 },
     { 
       field: 'status', 
       headerName: 'Status', 
       cellRenderer: (params: any) => (
-        <Chip label={params.value} color="success" size="small" sx={{ borderRadius: 0, fontWeight: 'bold' }} />
+        <Chip 
+          label={params.value} 
+          color={params.value === 'RUNNING' ? "success" : "error"} 
+          size="small" 
+          sx={{ borderRadius: 0, fontWeight: 'bold' }} 
+        />
       )
     },
-    { field: 'inputRowsPerSecond', headerName: 'Throughput (rows/s)', sortable: true, filter: 'agNumberColumnFilter', flex: 1 },
-    { field: 'processedRowsPerSecond', headerName: 'Processed (rows/s)', sortable: true, filter: 'agNumberColumnFilter', flex: 1 },
-    { field: 'durationMs.triggerExecution', headerName: 'Latency (ms)', sortable: true, filter: 'agNumberColumnFilter', flex: 1 },
+    { field: 'throughput', headerName: 'Throughput (rows/s)', sortable: true, flex: 1 },
+    { field: 'processed', headerName: 'Processed (rows/s)', sortable: true, flex: 1 },
+    { field: 'latency', headerName: 'Latency (ms)', sortable: true, flex: 1 },
   ], []);
 
   return (
@@ -54,9 +66,8 @@ export default function WriterOps() {
       
       {isError && <Typography color="error">Error connecting to Master Backend.</Typography>}
       
-      {/* ADDED display: flex and a strict wrapper with minHeight */}
       <Paper sx={{ flexGrow: 1, overflow: 'hidden', borderRadius: 0, p: 1, display: 'flex', flexDirection: 'column' }}>
-        <Box className="ag-theme-alpine" sx={{ flexGrow: 1, width: '100%', minHeight: '500px' }}>
+        <Box className="ag-theme-quartz" sx={{ flexGrow: 1, width: '100%', minHeight: '500px' }}>
           <AgGridReact
             rowData={rowData}
             columnDefs={columnDefs}
