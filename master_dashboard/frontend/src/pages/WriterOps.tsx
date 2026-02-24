@@ -84,11 +84,12 @@ export default function WriterOps() {
   }, [metricsRowData]);
 
   const metricsColumnDefs = useMemo<ColDef[]>(() => [
-    { field: 'module', headerName: 'SUBSYSTEM', sortable: true, filter: true, width: 150 },
+    { field: 'module', headerName: 'SUBSYSTEM', sortable: true, filter: true, flex: 1, minWidth: 120 },
     { 
       field: 'status', 
       headerName: 'PROCESS STATUS', 
-      width: 140,
+      flex: 1, 
+      minWidth: 140,
       cellRenderer: (params: any) => {
         let color: "success" | "error" | "warning" = "error";
         if (params.value === 'RUNNING') color = "success";
@@ -98,12 +99,13 @@ export default function WriterOps() {
         );
       }
     },
-    { field: 'kafka_total', headerName: 'KAFKA OFFSET', width: 130, type: 'numericColumn', valueFormatter: p => p.value?.toLocaleString() },
-    { field: 'delta_total', headerName: 'DELTA RECORDS', width: 130, type: 'numericColumn', valueFormatter: p => p.value?.toLocaleString() },
+    { field: 'kafka_total', headerName: 'KAFKA OFFSET', flex: 1, minWidth: 130, type: 'numericColumn', valueFormatter: p => p.value?.toLocaleString() },
+    { field: 'delta_total', headerName: 'DELTA RECORDS', flex: 1, minWidth: 130, type: 'numericColumn', valueFormatter: p => p.value?.toLocaleString() },
     { 
       field: 'true_lag', 
       headerName: 'SYSTEM LAG', 
-      width: 130, 
+      flex: 1, 
+      minWidth: 130, 
       type: 'numericColumn',
       cellStyle: (params: any): any => {
         if (params.value > 100) return { color: '#d32f2f', fontWeight: 'bold', backgroundColor: '#ffebee' };
@@ -111,9 +113,9 @@ export default function WriterOps() {
       },
       valueFormatter: p => p.value?.toLocaleString() 
     },
-    { field: 'throughput', headerName: 'IN RATE (r/s)', width: 120, type: 'numericColumn' },
-    { field: 'processed', headerName: 'OUT RATE (r/s)', width: 120, type: 'numericColumn' },
-    { field: 'latency_ms', headerName: 'LATENCY (ms)', flex: 1, type: 'numericColumn' }, 
+    { field: 'throughput', headerName: 'IN RATE (r/s)', flex: 1, minWidth: 120, type: 'numericColumn' },
+    { field: 'processed', headerName: 'OUT RATE (r/s)', flex: 1, minWidth: 120, type: 'numericColumn' },
+    { field: 'latency_ms', headerName: 'LATENCY (ms)', flex: 1, minWidth: 120, type: 'numericColumn' }, 
   ], []);
 
   const inspectorColumnDefs = useMemo<ColDef[]>(() => {
