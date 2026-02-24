@@ -38,7 +38,7 @@ export default function GoldHealth() {
       }
       const avgHealth = count > 0 ? (totalHealth / count) : 100;
       
-      let status = 'HEALTHY';
+      let status = 'NORMAL';
       if (avgHealth < 50) status = 'CRITICAL';
       else if (avgHealth < 80) status = 'WARNING';
 

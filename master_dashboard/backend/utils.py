@@ -6,6 +6,15 @@ import pandas as pd
 import numpy as np
 
 def sanitize_dataframe(df: pd.DataFrame) -> list:
+    """Cleans NaN, Inf, and serializes Datetimes for JSON."""
+    if df.empty:
+        return []
+        
+    # Convert datetimes to strings
+    for col in df.select_dtypes(include=['datetime64[ns, UTC]', 'datetime64[ns]', '<M8[ns]']).columns:
+        df[col] = df[col].astype(str)
+        
+    # Replace Infinity and NaN with None (which becomes null in JSON)
     cleaned_df = df.replace({np.nan: None, np.inf: None, -np.inf: None})
     return cleaned_df.to_dict(orient="records")
 
@@ -38,7 +47,7 @@ def safe_read_pickle(file_path: str, retries: int = 5, delay: float = 0.05):
         except (EOFError, pickle.UnpicklingError, PermissionError):
             time.sleep(delay)
         except Exception as e:
-            print(f"Critcal error reading pickle {file_path}: {e}")
+            print(f"Critical error reading pickle {file_path}: {e}")
             return None
             
     print(f"Timeout: Could not read locked pickle {file_path} after {retries} attempts.")
