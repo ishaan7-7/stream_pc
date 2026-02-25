@@ -14,6 +14,34 @@ from pydantic import BaseModel
 import uuid
 import datetime
 from collections import defaultdict, deque
+import aiohttp
+import re
+from collections import defaultdict, deque
+
+# --- OBSERVER & NETWORK STATE ---
+PORTS_TO_CHECK = {
+    "Zookeeper": 2181,
+    "Kafka": 9092,
+    "Ingest": 8000,
+    "Replay/Dashboard API": 8005, 
+    "React UI": 5173
+}
+
+VALIDATION_REGEX = re.compile(r'ingest_rows_validation_detail(?:_total)?\{.*vehicle_id="([^"]+)".*status="([^"]+)".*\}\s+(\d+\.?\d*)')
+DLQ_GAUGE_REGEX = re.compile(r'dlq_size_files\s+(\d+\.?\d*)')
+
+OBSERVER_HISTORY_LEN = 300
+
+OBSERVER_CACHE = {
+    "system_health": {k: False for k in PORTS_TO_CHECK},
+    "global_stats": {
+        "total_rows": 0,
+        "active_vehicles": 0,
+        "avg_latency": 0.0,
+        "dlq_backlog": 0
+    },
+    "vehicles": {}
+}
 
 # --- OBSERVER STATE ---
 # 1. DEFINE APP FIRST
@@ -101,12 +129,6 @@ ALERTS_METRICS_CACHE = {
     "closed_alerts": []
 }
 
-OBSERVER_HISTORY_LEN = 50
-
-OBSERVER_CACHE = {
-    "global_stats": {"total_rows": 0, "active_vehicles": 0, "avg_latency": 0.0},
-    "vehicles": {}
-}
 
 
 class TelemetryBackend:
@@ -298,7 +320,8 @@ async def startup_event():
     asyncio.create_task(update_inference_metrics_loop())
     asyncio.create_task(update_gold_metrics_loop())
     asyncio.create_task(update_alerts_metrics_loop())
-    asyncio.create_task(update_observer_metrics_loop())
+    asyncio.create_task(observer_health_loop())      
+    asyncio.create_task(observer_kafka_loop())
 
 @app.get("/health")
 def health_check():
@@ -701,38 +724,78 @@ def stop_replay(job_id: str):
         return {"success": True}
     return {"error": "Job not found"}
 
-# --- TELEMETRY OBSERVER ENDPOINTS ---
+# --- TELEMETRY OBSERVER & REPLAY DASHBOARD ENDPOINTS ---
 
-async def update_observer_metrics_loop():
-    """Background task that actively listens to Kafka and builds the live UI snapshot"""
+async def observer_health_loop():
+    """Scans local ports and scrapes the Ingest /metrics endpoint for Data Quality stats"""
+    while True:
+        try:
+            # 1. Port Scanner
+            for name, port in PORTS_TO_CHECK.items():
+                try:
+                    _, writer = await asyncio.wait_for(asyncio.open_connection("127.0.0.1", port), timeout=0.2)
+                    writer.close()
+                    await writer.wait_closed()
+                    OBSERVER_CACHE["system_health"][name] = True
+                except:
+                    OBSERVER_CACHE["system_health"][name] = False
+            
+            # 2. HTTP Metrics Poller (DLQ and Rejected Rows)
+            if OBSERVER_CACHE["system_health"].get("Ingest", False):
+                async with aiohttp.ClientSession() as session:
+                    async with session.get("http://127.0.0.1:8000/metrics", timeout=1) as resp:
+                        if resp.status == 200:
+                            text = await resp.text()
+                            temp_dlq = 0
+                            for line in text.splitlines():
+                                if line.startswith("#"): continue
+                                
+                                v_match = VALIDATION_REGEX.search(line)
+                                if v_match:
+                                    v_id, status, val = v_match.groups()
+                                    if status == "rejected" and v_id in OBSERVER_CACHE["vehicles"]:
+                                        OBSERVER_CACHE["vehicles"][v_id]["rejected"] = int(float(val))
+                                    continue
+
+                                d_match = DLQ_GAUGE_REGEX.search(line)
+                                if d_match:
+                                    temp_dlq = int(float(d_match.group(1)))
+                                    
+                            OBSERVER_CACHE["global_stats"]["dlq_backlog"] = temp_dlq
+        except Exception:
+            pass
+        await asyncio.sleep(2)
+
+async def observer_kafka_loop():
+    """Listens to raw Kafka streams to build the live charts and compute latency"""
     conf = {
         'bootstrap.servers': KAFKA_BROKER,
         'group.id': f'master_dashboard_observer_{uuid.uuid4().hex[:8]}',
         'auto.offset.reset': 'latest',
         'enable.auto.commit': False
     }
-    consumer = Consumer(conf)
-    topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
-    
     try:
+        consumer = Consumer(conf)
+        topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
         consumer.subscribe(topics)
     except:
-        pass
+        consumer = None
 
     while True:
+        if not consumer:
+            await asyncio.sleep(5)
+            continue
+            
         try:
-            # Poll Kafka with a tiny timeout to avoid blocking FastAPI
             msg = consumer.poll(0.1)
             if msg is None or msg.error():
-                await asyncio.sleep(0.1)
+                await asyncio.sleep(0.01)
                 continue
 
             val = msg.value()
             if not val: continue
             
             payload = json.loads(val.decode('utf-8'))
-            
-            # Support both original ingest nested format and flattened replay format
             meta = payload.get("metadata", payload)
             data_body = payload.get("data", payload)
             
@@ -740,14 +803,10 @@ async def update_observer_metrics_loop():
             module = meta.get("module", payload.get("module", "unknown")).lower()
             ingest_ts_str = meta.get("ingest_ts", payload.get("ingest_ts"))
 
-            # Initialize vehicle if first time seen
             if v_id not in OBSERVER_CACHE["vehicles"]:
                 OBSERVER_CACHE["vehicles"][v_id] = {
-                    "rows_processed": 0,
-                    "latency_sum": 0.0,
-                    "latency_count": 0,
-                    "latest_payload": {},
-                    "module_payloads": {},
+                    "accepted": 0, "rejected": 0, "latency_sum": 0.0, "latency_count": 0,
+                    "last_seen": time.time(), "latest_payload": {}, "module_payloads": {},
                     "history": defaultdict(lambda: {
                         "timestamps": deque(maxlen=OBSERVER_HISTORY_LEN),
                         "metrics": defaultdict(lambda: deque(maxlen=OBSERVER_HISTORY_LEN))
@@ -755,7 +814,8 @@ async def update_observer_metrics_loop():
                 }
 
             entry = OBSERVER_CACHE["vehicles"][v_id]
-            entry["rows_processed"] += 1
+            entry["accepted"] += 1
+            entry["last_seen"] = time.time()
 
             # Compute Live Latency
             latency_ms = 0.0
@@ -779,29 +839,32 @@ async def update_observer_metrics_loop():
                 if isinstance(v, (int, float)) and not isinstance(v, bool):
                     mod_hist["metrics"][k].append(v)
 
-            OBSERVER_CACHE["global_stats"]["total_rows"] += 1
-            OBSERVER_CACHE["global_stats"]["active_vehicles"] = len(OBSERVER_CACHE["vehicles"])
-
-        except Exception as e:
+        except Exception:
             pass
         await asyncio.sleep(0.01)
 
 @app.get("/api/observer/snapshot")
 def get_observer_snapshot():
     """Serves the live buffered data to the React Observer UI"""
-    snapshot = {
-        "global_stats": OBSERVER_CACHE["global_stats"].copy(),
-        "vehicles": []
-    }
-    
+    total_rows = 0
     global_lat_sum = 0
     global_lat_count = 0
+    vehicle_list = []
     
+    current_time = time.time()
+
     # Iterate safely to package the nested deques into pure JSON lists
     for v_id, data in OBSERVER_CACHE["vehicles"].items():
+        acc = data["accepted"]
+        rej = data["rejected"]
+        total = acc + rej
+        val_rate = (acc / total * 100.0) if total > 0 else 100.0
+        
         v_lat = (data["latency_sum"] / data["latency_count"]) if data["latency_count"] > 0 else 0
         global_lat_sum += data["latency_sum"]
         global_lat_count += data["latency_count"]
+        
+        ago = round(current_time - data["last_seen"], 1)
         
         clean_history = {}
         for mod, h_data in data["history"].items():
@@ -810,19 +873,30 @@ def get_observer_snapshot():
                 "metrics": {k: list(v) for k, v in h_data["metrics"].items()}
             }
             
-        snapshot["vehicles"].append({
+        vehicle_list.append({
             "vehicle_id": v_id,
-            "rows_processed": data["rows_processed"],
+            "rows_processed": acc,
+            "rejected_rows": rej,
+            "validation_rate": round(val_rate, 1),
             "avg_latency": round(v_lat, 1),
+            "last_seen_sec": ago,
             "latest_payload": data["latest_payload"],
             "module_payloads": data["module_payloads"],
             "history": clean_history
         })
+        total_rows += acc
         
-    if global_lat_count > 0:
-        snapshot["global_stats"]["avg_latency"] = round(global_lat_sum / global_lat_count, 1)
-        
-    return snapshot
+    global_avg_lat = (global_lat_sum / global_lat_count) if global_lat_count > 0 else 0.0
+    
+    OBSERVER_CACHE["global_stats"]["total_rows"] = total_rows
+    OBSERVER_CACHE["global_stats"]["active_vehicles"] = len(vehicle_list)
+    OBSERVER_CACHE["global_stats"]["avg_latency"] = round(global_avg_lat, 1)
+
+    return {
+        "system_health": OBSERVER_CACHE["system_health"],
+        "global_stats": OBSERVER_CACHE["global_stats"],
+        "vehicles": vehicle_list
+    }
 
 if __name__ == "__main__":
     import uvicorn
