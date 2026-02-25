@@ -10,11 +10,11 @@ from confluent_kafka import Consumer, TopicPartition
 from utils import safe_read_json, safe_read_pickle
 from concurrent.futures import ProcessPoolExecutor
 import plotly.express as px
+from pydantic import BaseModel
+import uuid
+import datetime
 
-app = FastAPI(
-    title="Master Dashboard API",
-    description="Read-only data aggregator and execution layer"
-)
+
 
 app.add_middleware(
     CORSMiddleware,
@@ -45,6 +45,21 @@ except ImportError:
     GOLD_ENABLED_MODULES = ["engine", "transmission", "battery", "body", "tyre"]
     GOLD_WEIGHTS = {"engine": 0.35, "transmission": 0.25, "battery": 0.20, "body": 0.10, "tyre": 0.10}
     GOLD_PENALTIES = {"engine": 30.0, "transmission": 25.0, "battery": 20.0}
+# --- REPLAY STATE ---
+REPLAY_SCENARIOS_DIR = os.path.join(PROJECT_ROOT, "data", "scenarios")
+os.makedirs(REPLAY_SCENARIOS_DIR, exist_ok=True) # Ensure directory exists
+
+ACTIVE_REPLAYS = {}
+
+try:
+    replay_producer = Producer({'bootstrap.servers': KAFKA_BROKER})
+except Exception:
+    replay_producer = None
+
+app = FastAPI(
+    title="Master Dashboard API",
+    description="Read-only data aggregator and execution layer"
+)
 
 # --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
@@ -576,6 +591,103 @@ def analyze_dtc(module: str, source_id: str, peak_ts: str):
         return result
     except Exception as e:
         return {"error": f"DTC Analysis computation failed: {str(e)}"}
+    
+# --- TELEMETRY REPLAY ENDPOINTS ---
+
+class ReplayRequest(BaseModel):
+    scenario_file: str
+    target_sim_id: str = "sim_replay_01"
+    speed_multiplier: float = 1.0
+
+async def _replay_worker(job_id: str, req: ReplayRequest):
+    """Background task that streams a historical file into Kafka"""
+    try:
+        file_path = os.path.join(REPLAY_SCENARIOS_DIR, req.scenario_file)
+        if file_path.endswith('.parquet'):
+            df = pd.read_parquet(file_path)
+        elif file_path.endswith('.csv'):
+            df = pd.read_csv(file_path)
+        else:
+            raise ValueError("Unsupported file format")
+
+        ACTIVE_REPLAYS[job_id]["total_rows"] = len(df)
+        
+        for idx, row in df.iterrows():
+            if ACTIVE_REPLAYS[job_id]["status"] == "STOPPING":
+                ACTIVE_REPLAYS[job_id]["status"] = "STOPPED"
+                break
+                
+            payload = row.dropna().to_dict()
+            # Override the source ID so it appears as a new distinct vehicle in the UI
+            payload["source_id"] = req.target_sim_id 
+            
+            # Serialize timestamps for JSON pushing
+            for k, v in payload.items():
+                if isinstance(v, (pd.Timestamp, datetime.datetime)):
+                    payload[k] = v.isoformat()
+                    
+            module = payload.get("module", "engine").lower()
+            topic = f"telemetry.{module}"
+            
+            if replay_producer:
+                replay_producer.produce(topic, key=req.target_sim_id, value=json.dumps(payload))
+                replay_producer.poll(0)
+                
+            ACTIVE_REPLAYS[job_id]["progress"] = idx + 1
+            
+            # Base delay is 100ms per row. Divided by speed multiplier.
+            await asyncio.sleep(0.1 / req.speed_multiplier)
+            
+        if ACTIVE_REPLAYS[job_id]["status"] != "STOPPED":
+            ACTIVE_REPLAYS[job_id]["status"] = "COMPLETED"
+            
+        if replay_producer:
+            replay_producer.flush()
+            
+    except Exception as e:
+        ACTIVE_REPLAYS[job_id]["status"] = f"FAILED: {str(e)}"
+
+@app.get("/api/replay/scenarios")
+def get_replay_scenarios():
+    """Powers the dropdown menu to select a historical file"""
+    if not os.path.exists(REPLAY_SCENARIOS_DIR):
+        return {"scenarios": []}
+    files = [f for f in os.listdir(REPLAY_SCENARIOS_DIR) if f.endswith('.parquet') or f.endswith('.csv')]
+    return {"scenarios": files}
+
+@app.get("/api/replay/active")
+def get_active_replays():
+    """Powers the Active Replay Jobs table"""
+    return ACTIVE_REPLAYS
+
+@app.post("/api/replay/start")
+def start_replay(req: ReplayRequest):
+    """Fires up an asynchronous injection task"""
+    if not replay_producer:
+        return {"error": "Kafka Producer not connected."}
+        
+    job_id = str(uuid.uuid4())[:8]
+    ACTIVE_REPLAYS[job_id] = {
+        "job_id": job_id,
+        "scenario": req.scenario_file,
+        "sim_id": req.target_sim_id,
+        "status": "RUNNING",
+        "progress": 0,
+        "total_rows": 0,
+        "speed": req.speed_multiplier,
+        "start_time": datetime.datetime.utcnow().isoformat()
+    }
+    asyncio.create_task(_replay_worker(job_id, req))
+    return {"success": True, "job_id": job_id}
+
+@app.post("/api/replay/stop/{job_id}")
+def stop_replay(job_id: str):
+    """Gracefully halts an active injection"""
+    if job_id in ACTIVE_REPLAYS:
+        if ACTIVE_REPLAYS[job_id]["status"] == "RUNNING":
+            ACTIVE_REPLAYS[job_id]["status"] = "STOPPING"
+        return {"success": True}
+    return {"error": "Job not found"}
 
 if __name__ == "__main__":
     import uvicorn
