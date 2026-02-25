@@ -68,8 +68,7 @@ INFERENCE_METRICS_CACHE = {
 GOLD_METRICS_CACHE = {
     "active_sims": [],
     "total_gold_rows": 0,
-    "processing_lag": 0,
-    "primary_module": GOLD_ENABLED_MODULES[0] if GOLD_ENABLED_MODULES else "engine"
+    "processing_lags": {mod: 0 for mod in GOLD_ENABLED_MODULES}
 }
 
 class TelemetryBackend:
@@ -363,13 +362,14 @@ def get_inference_tail(module: str):
 async def update_gold_metrics_loop():
     while True:
         try:
-            silver_count = 0
-            silver_primary = os.path.join(SILVER_ROOT, GOLD_METRICS_CACHE["primary_module"])
-            if os.path.exists(silver_primary):
-                s_files = [os.path.join(r, f) for r, d, f in os.walk(silver_primary) for f in f if f.endswith(".parquet")]
-                for f in s_files:
-                    try: silver_count += len(pd.read_parquet(f))
-                    except: pass
+            silver_counts = {m: 0 for m in GOLD_ENABLED_MODULES}
+            for mod in GOLD_ENABLED_MODULES:
+                silver_path = os.path.join(SILVER_ROOT, mod)
+                if os.path.exists(silver_path):
+                    s_files = [os.path.join(r, f) for r, d, f in os.walk(silver_path) for f in f if f.endswith(".parquet")]
+                    for f in s_files:
+                        try: silver_counts[mod] += len(pd.read_parquet(f))
+                        except: pass
             
             gold_count = 0
             active_sims = set()
@@ -384,7 +384,7 @@ async def update_gold_metrics_loop():
             
             GOLD_METRICS_CACHE["active_sims"] = sorted(list(active_sims))
             GOLD_METRICS_CACHE["total_gold_rows"] = gold_count
-            GOLD_METRICS_CACHE["processing_lag"] = max(0, silver_count - gold_count)
+            GOLD_METRICS_CACHE["processing_lags"] = {mod: max(0, silver_counts[mod] - gold_count) for mod in GOLD_ENABLED_MODULES}
             
         except Exception as e: 
             print(f"Gold metrics loop failed: {e}")
@@ -407,42 +407,40 @@ def get_gold_config():
 
 @app.get("/api/gold/history/{sim_id}")
 def get_gold_history(sim_id: str):
-    """Fetches the FULL history of a specific sim for dynamic graph recalculations"""
-    if not os.path.exists(GOLD_ROOT):
-        return {"data": []}
+    """Fetches history of a specific sim, or the entire fleet if sim_id='ALL'"""
+    if not os.path.exists(GOLD_ROOT): return {"data": []}
         
     files = [os.path.join(r, f) for r, d, f in os.walk(GOLD_ROOT) for f in f if f.endswith(".parquet")]
-    if not files: 
-        return {"data": []}
+    if not files: return {"data": []}
         
     dfs = []
     for f in files:
         try:
             df = pd.read_parquet(f)
-            # Pre-filter at the Pandas level to keep memory usage low
             if 'source_id' in df.columns:
-                sim_df = df[df['source_id'] == sim_id]
-                if not sim_df.empty:
-                    dfs.append(sim_df)
+                if sim_id.upper() == "ALL":
+                    dfs.append(df)
+                else:
+                    sim_df = df[df['source_id'] == sim_id]
+                    if not sim_df.empty: dfs.append(sim_df)
         except Exception: pass
         
-    if not dfs:
-        return {"data": []}
-        
+    if not dfs: return {"data": []}
     combined_df = pd.concat(dfs, ignore_index=True)
     
     if 'gold_window_ts' in combined_df.columns:
         combined_df['gold_window_ts'] = pd.to_datetime(combined_df['gold_window_ts'])
-        # Sort chronologically (first to last) for charting
         combined_df = combined_df.sort_values('gold_window_ts', ascending=True)
-        # Drop duplicates in case of replay overlays
-        combined_df = combined_df.drop_duplicates(subset=['gold_window_ts'], keep='last')
-        
+        # Only drop duplicates if we are looking at a single sim
+        if sim_id.upper() != "ALL":
+            combined_df = combined_df.drop_duplicates(subset=['gold_window_ts'], keep='last')
+            
     combined_df = combined_df.fillna(0)
     for col in combined_df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
         combined_df[col] = combined_df[col].astype(str)
         
-    return {"data": combined_df.to_dict(orient="records")}
+    # Limit to last 1000 to prevent browser crash when viewing entire fleet
+    return {"data": combined_df.tail(1000).to_dict(orient="records")}
 
 if __name__ == "__main__":
     import uvicorn
