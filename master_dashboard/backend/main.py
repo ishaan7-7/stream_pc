@@ -6,7 +6,7 @@ import asyncio
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from confluent_kafka import Consumer, TopicPartition
+from confluent_kafka import Consumer, TopicPartition, Producer
 from utils import safe_read_json, safe_read_pickle
 from concurrent.futures import ProcessPoolExecutor
 import plotly.express as px
@@ -14,8 +14,13 @@ from pydantic import BaseModel
 import uuid
 import datetime
 
+# 1. DEFINE APP FIRST
+app = FastAPI(
+    title="Master Dashboard API",
+    description="Read-only data aggregator and execution layer"
+)
 
-
+# 2. THEN ADD MIDDLEWARE
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://localhost:5173", "http://127.0.0.1:5173"], 
@@ -24,6 +29,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VEHICLE_MODULES = ["battery", "body", "engine", "transmission", "tyre"]
 DELTA_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "bronze")
@@ -55,11 +61,6 @@ try:
     replay_producer = Producer({'bootstrap.servers': KAFKA_BROKER})
 except Exception:
     replay_producer = None
-
-app = FastAPI(
-    title="Master Dashboard API",
-    description="Read-only data aggregator and execution layer"
-)
 
 # --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
