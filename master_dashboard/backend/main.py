@@ -27,6 +27,20 @@ VEHICLE_MODULES = ["battery", "body", "engine", "transmission", "tyre"]
 DELTA_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "bronze")
 SILVER_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "silver")
 KAFKA_BROKER = "localhost:9092"
+GOLD_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "gold", "vehicle_health")
+
+# Attempt to load Gold Service Config dynamically for the UI Sliders
+sys.path.append(os.path.join(PROJECT_ROOT, "gold_service"))
+try:
+    from src import config as gold_config
+    GOLD_ENABLED_MODULES = gold_config.ENABLED_MODULES
+    GOLD_WEIGHTS = gold_config.NORMALIZED_WEIGHTS
+    GOLD_PENALTIES = gold_config.TIER_1_PENALTIES
+except ImportError:
+    # Fallback if config is inaccessible
+    GOLD_ENABLED_MODULES = ["engine", "transmission", "battery", "body", "tyre"]
+    GOLD_WEIGHTS = {"engine": 0.35, "transmission": 0.25, "battery": 0.20, "body": 0.10, "tyre": 0.10}
+    GOLD_PENALTIES = {"engine": 30.0, "transmission": 25.0, "battery": 20.0}
 
 # --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
@@ -49,6 +63,13 @@ INFERENCE_METRICS_CACHE = {
     "global_inf_ms": 0,
     "module_stats": {},
     "recent_alerts": []
+}
+
+GOLD_METRICS_CACHE = {
+    "active_sims": [],
+    "total_gold_rows": 0,
+    "processing_lag": 0,
+    "primary_module": GOLD_ENABLED_MODULES[0] if GOLD_ENABLED_MODULES else "engine"
 }
 
 class TelemetryBackend:
@@ -238,6 +259,7 @@ async def update_inference_metrics_loop():
 async def startup_event():
     asyncio.create_task(update_writer_metrics_loop())
     asyncio.create_task(update_inference_metrics_loop())
+    asyncio.create_task(update_gold_metrics_loop())
 
 @app.get("/health")
 def health_check():
@@ -337,6 +359,90 @@ def get_inference_tail(module: str):
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+    
+async def update_gold_metrics_loop():
+    while True:
+        try:
+            silver_count = 0
+            silver_primary = os.path.join(SILVER_ROOT, GOLD_METRICS_CACHE["primary_module"])
+            if os.path.exists(silver_primary):
+                s_files = [os.path.join(r, f) for r, d, f in os.walk(silver_primary) for f in f if f.endswith(".parquet")]
+                for f in s_files:
+                    try: silver_count += len(pd.read_parquet(f))
+                    except: pass
+            
+            gold_count = 0
+            active_sims = set()
+            if os.path.exists(GOLD_ROOT):
+                g_files = [os.path.join(r, f) for r, d, f in os.walk(GOLD_ROOT) for f in f if f.endswith(".parquet")]
+                for f in g_files:
+                    try:
+                        df = pd.read_parquet(f)
+                        gold_count += len(df)
+                        if 'source_id' in df.columns: active_sims.update(df['source_id'].unique().tolist())
+                    except: pass
+            
+            GOLD_METRICS_CACHE["active_sims"] = sorted(list(active_sims))
+            GOLD_METRICS_CACHE["total_gold_rows"] = gold_count
+            GOLD_METRICS_CACHE["processing_lag"] = max(0, silver_count - gold_count)
+            
+        except Exception as e: 
+            print(f"Gold metrics loop failed: {e}")
+        await asyncio.sleep(2)
+
+# --- GOLD ENDPOINTS ---
+
+@app.get("/api/gold/metrics")
+def get_gold_metrics():
+    return GOLD_METRICS_CACHE
+
+@app.get("/api/gold/config")
+def get_gold_config():
+    """Provides the aggregator config for the React Experimentation UI"""
+    return {
+        "enabled_modules": GOLD_ENABLED_MODULES,
+        "default_weights": GOLD_WEIGHTS,
+        "tier_1_penalties": GOLD_PENALTIES
+    }
+
+@app.get("/api/gold/history/{sim_id}")
+def get_gold_history(sim_id: str):
+    """Fetches the FULL history of a specific sim for dynamic graph recalculations"""
+    if not os.path.exists(GOLD_ROOT):
+        return {"data": []}
+        
+    files = [os.path.join(r, f) for r, d, f in os.walk(GOLD_ROOT) for f in f if f.endswith(".parquet")]
+    if not files: 
+        return {"data": []}
+        
+    dfs = []
+    for f in files:
+        try:
+            df = pd.read_parquet(f)
+            # Pre-filter at the Pandas level to keep memory usage low
+            if 'source_id' in df.columns:
+                sim_df = df[df['source_id'] == sim_id]
+                if not sim_df.empty:
+                    dfs.append(sim_df)
+        except Exception: pass
+        
+    if not dfs:
+        return {"data": []}
+        
+    combined_df = pd.concat(dfs, ignore_index=True)
+    
+    if 'gold_window_ts' in combined_df.columns:
+        combined_df['gold_window_ts'] = pd.to_datetime(combined_df['gold_window_ts'])
+        # Sort chronologically (first to last) for charting
+        combined_df = combined_df.sort_values('gold_window_ts', ascending=True)
+        # Drop duplicates in case of replay overlays
+        combined_df = combined_df.drop_duplicates(subset=['gold_window_ts'], keep='last')
+        
+    combined_df = combined_df.fillna(0)
+    for col in combined_df.select_dtypes(include=['datetime64[ns]', 'datetime64[ns, UTC]']).columns:
+        combined_df[col] = combined_df[col].astype(str)
+        
+    return {"data": combined_df.to_dict(orient="records")}
 
 if __name__ == "__main__":
     import uvicorn
