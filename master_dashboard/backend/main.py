@@ -13,7 +13,9 @@ import plotly.express as px
 from pydantic import BaseModel
 import uuid
 import datetime
+from collections import defaultdict, deque
 
+# --- OBSERVER STATE ---
 # 1. DEFINE APP FIRST
 app = FastAPI(
     title="Master Dashboard API",
@@ -98,6 +100,14 @@ ALERTS_METRICS_CACHE = {
     "open_alerts": [],
     "closed_alerts": []
 }
+
+OBSERVER_HISTORY_LEN = 50
+
+OBSERVER_CACHE = {
+    "global_stats": {"total_rows": 0, "active_vehicles": 0, "avg_latency": 0.0},
+    "vehicles": {}
+}
+
 
 class TelemetryBackend:
     def __init__(self):
@@ -288,6 +298,7 @@ async def startup_event():
     asyncio.create_task(update_inference_metrics_loop())
     asyncio.create_task(update_gold_metrics_loop())
     asyncio.create_task(update_alerts_metrics_loop())
+    asyncio.create_task(update_observer_metrics_loop())
 
 @app.get("/health")
 def health_check():
@@ -689,6 +700,129 @@ def stop_replay(job_id: str):
             ACTIVE_REPLAYS[job_id]["status"] = "STOPPING"
         return {"success": True}
     return {"error": "Job not found"}
+
+# --- TELEMETRY OBSERVER ENDPOINTS ---
+
+async def update_observer_metrics_loop():
+    """Background task that actively listens to Kafka and builds the live UI snapshot"""
+    conf = {
+        'bootstrap.servers': KAFKA_BROKER,
+        'group.id': f'master_dashboard_observer_{uuid.uuid4().hex[:8]}',
+        'auto.offset.reset': 'latest',
+        'enable.auto.commit': False
+    }
+    consumer = Consumer(conf)
+    topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
+    
+    try:
+        consumer.subscribe(topics)
+    except:
+        pass
+
+    while True:
+        try:
+            # Poll Kafka with a tiny timeout to avoid blocking FastAPI
+            msg = consumer.poll(0.1)
+            if msg is None or msg.error():
+                await asyncio.sleep(0.1)
+                continue
+
+            val = msg.value()
+            if not val: continue
+            
+            payload = json.loads(val.decode('utf-8'))
+            
+            # Support both original ingest nested format and flattened replay format
+            meta = payload.get("metadata", payload)
+            data_body = payload.get("data", payload)
+            
+            v_id = meta.get("vehicle_id") or payload.get("source_id", "unknown_sim")
+            module = meta.get("module", payload.get("module", "unknown")).lower()
+            ingest_ts_str = meta.get("ingest_ts", payload.get("ingest_ts"))
+
+            # Initialize vehicle if first time seen
+            if v_id not in OBSERVER_CACHE["vehicles"]:
+                OBSERVER_CACHE["vehicles"][v_id] = {
+                    "rows_processed": 0,
+                    "latency_sum": 0.0,
+                    "latency_count": 0,
+                    "latest_payload": {},
+                    "module_payloads": {},
+                    "history": defaultdict(lambda: {
+                        "timestamps": deque(maxlen=OBSERVER_HISTORY_LEN),
+                        "metrics": defaultdict(lambda: deque(maxlen=OBSERVER_HISTORY_LEN))
+                    })
+                }
+
+            entry = OBSERVER_CACHE["vehicles"][v_id]
+            entry["rows_processed"] += 1
+
+            # Compute Live Latency
+            latency_ms = 0.0
+            if ingest_ts_str:
+                try:
+                    ts = pd.to_datetime(ingest_ts_str, utc=True)
+                    latency_ms = max(0, (pd.Timestamp.utcnow() - ts).total_seconds() * 1000)
+                except: pass
+
+            entry["latency_sum"] += latency_ms
+            entry["latency_count"] += 1
+            entry["latest_payload"] = payload
+            entry["module_payloads"][module] = payload
+
+            # Buffer History for React Charts
+            now_str = datetime.datetime.utcnow().strftime("%H:%M:%S")
+            mod_hist = entry["history"][module]
+            mod_hist["timestamps"].append(now_str)
+
+            for k, v in data_body.items():
+                if isinstance(v, (int, float)) and not isinstance(v, bool):
+                    mod_hist["metrics"][k].append(v)
+
+            OBSERVER_CACHE["global_stats"]["total_rows"] += 1
+            OBSERVER_CACHE["global_stats"]["active_vehicles"] = len(OBSERVER_CACHE["vehicles"])
+
+        except Exception as e:
+            pass
+        await asyncio.sleep(0.01)
+
+@app.get("/api/observer/snapshot")
+def get_observer_snapshot():
+    """Serves the live buffered data to the React Observer UI"""
+    snapshot = {
+        "global_stats": OBSERVER_CACHE["global_stats"].copy(),
+        "vehicles": []
+    }
+    
+    global_lat_sum = 0
+    global_lat_count = 0
+    
+    # Iterate safely to package the nested deques into pure JSON lists
+    for v_id, data in OBSERVER_CACHE["vehicles"].items():
+        v_lat = (data["latency_sum"] / data["latency_count"]) if data["latency_count"] > 0 else 0
+        global_lat_sum += data["latency_sum"]
+        global_lat_count += data["latency_count"]
+        
+        clean_history = {}
+        for mod, h_data in data["history"].items():
+            clean_history[mod] = {
+                "timestamps": list(h_data["timestamps"]),
+                "metrics": {k: list(v) for k, v in h_data["metrics"].items()}
+            }
+            
+        snapshot["vehicles"].append({
+            "vehicle_id": v_id,
+            "rows_processed": data["rows_processed"],
+            "avg_latency": round(v_lat, 1),
+            "latest_payload": data["latest_payload"],
+            "module_payloads": data["module_payloads"],
+            "history": clean_history
+        })
+        
+    if global_lat_count > 0:
+        snapshot["global_stats"]["avg_latency"] = round(global_lat_sum / global_lat_count, 1)
+        
+    return snapshot
 
 if __name__ == "__main__":
     import uvicorn
