@@ -527,14 +527,22 @@ def get_alerts_metrics():
 def _execute_dtc_pipeline(module: str, source_id: str, peak_ts: str):
     """Executes heavy PyTorch inference in an isolated process"""
     try:
+        import pandas as pd
         from DTC_service.analyzer import DTCAdapter
-        adapter = DTCAdapter(module_name=module)
-        silver_df = adapter.fetch_traceback(source_id, peak_ts)
         
-        if silver_df.empty:
-            return {"error": "Traceback data not found in Silver table."}
+        adapter = DTCAdapter(module_name=module)
+        
+        # 1. Convert the raw web string into a native Pandas Datetime object
+        # This allows the analyzer to do time-window math (e.g. peak_ts +/- 2 minutes)
+        peak_datetime = pd.to_datetime(peak_ts)
+        
+        # 2. Architecturally, this is fetching from the Bronze layer
+        bronze_df = adapter.fetch_traceback(source_id, peak_datetime)
+        
+        if bronze_df.empty:
+            return {"error": f"Traceback data not found in Bronze table for {source_id} at {peak_ts}."}
             
-        df_crit, df_noncrit, triggers, diagnostics = adapter.run_diagnosis(silver_df)
+        df_crit, df_noncrit, triggers, diagnostics = adapter.run_diagnosis(bronze_df)
         
         def render_plot_to_json(df_buildup, title, color_theme):
             if df_buildup.empty: return None
