@@ -184,8 +184,9 @@ async def update_writer_metrics_loop():
     kafka_monitor = TelemetryBackend()
     while True:
         try:
-            k_counts = kafka_monitor.get_kafka_counts()
-            d_counts = get_delta_counts()
+            # Offload synchronous C-extension and File I/O to background threads
+            k_counts = await asyncio.to_thread(kafka_monitor.get_kafka_counts)
+            d_counts = await asyncio.to_thread(get_delta_counts)
 
             for module in VEHICLE_MODULES:
                 k_total = k_counts.get(module, 0)
@@ -667,7 +668,9 @@ async def observer_kafka_loop():
         *topics,
         bootstrap_servers=KAFKA_BROKER,
         group_id=unique_group_id, 
-        auto_offset_reset="latest"
+        auto_offset_reset="latest",
+        session_timeout_ms=45000,    # Tolerate up to 45 seconds of event loop blocking
+        heartbeat_interval_ms=15000  # Send heartbeats every 15 seconds
     )
 
     try:
