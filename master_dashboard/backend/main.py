@@ -6,7 +6,8 @@ import asyncio
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from confluent_kafka import Consumer, TopicPartition, Producer
+from confluent_kafka import Consumer, TopicPartition
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
 from utils import safe_read_json, safe_read_pickle
 from concurrent.futures import ProcessPoolExecutor
 import plotly.express as px
@@ -87,10 +88,7 @@ os.makedirs(REPLAY_SCENARIOS_DIR, exist_ok=True) # Ensure directory exists
 
 ACTIVE_REPLAYS = {}
 
-try:
-    replay_producer = Producer({'bootstrap.servers': KAFKA_BROKER})
-except Exception:
-    replay_producer = None
+replay_producer: AIOKafkaProducer = None
 
 # --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
@@ -316,12 +314,25 @@ async def update_inference_metrics_loop():
 
 @app.on_event("startup")
 async def startup_event():
+    global replay_producer
+    replay_producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BROKER)
+    try:
+        await replay_producer.start()
+    except Exception as e:
+        print(f"Replay Producer failed to start: {e}")
+
     asyncio.create_task(update_writer_metrics_loop())
     asyncio.create_task(update_inference_metrics_loop())
     asyncio.create_task(update_gold_metrics_loop())
     asyncio.create_task(update_alerts_metrics_loop())
     asyncio.create_task(observer_health_loop())      
     asyncio.create_task(observer_kafka_loop())
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    global replay_producer
+    if replay_producer:
+        await replay_producer.stop()
 
 @app.get("/health")
 def health_check():
@@ -635,7 +646,6 @@ class ReplayRequest(BaseModel):
     speed_multiplier: float = 1.0
 
 async def _replay_worker(job_id: str, req: ReplayRequest):
-    """Background task that streams a historical file into Kafka"""
     try:
         file_path = os.path.join(REPLAY_SCENARIOS_DIR, req.scenario_file)
         if file_path.endswith('.parquet'):
@@ -653,10 +663,8 @@ async def _replay_worker(job_id: str, req: ReplayRequest):
                 break
                 
             payload = row.dropna().to_dict()
-            # Override the source ID so it appears as a new distinct vehicle in the UI
             payload["source_id"] = req.target_sim_id 
             
-            # Serialize timestamps for JSON pushing
             for k, v in payload.items():
                 if isinstance(v, (pd.Timestamp, datetime.datetime)):
                     payload[k] = v.isoformat()
@@ -665,19 +673,17 @@ async def _replay_worker(job_id: str, req: ReplayRequest):
             topic = f"telemetry.{module}"
             
             if replay_producer:
-                replay_producer.produce(topic, key=req.target_sim_id, value=json.dumps(payload))
-                replay_producer.poll(0)
+                await replay_producer.send_and_wait(
+                    topic, 
+                    key=req.target_sim_id.encode('utf-8'), 
+                    value=json.dumps(payload).encode('utf-8')
+                )
                 
             ACTIVE_REPLAYS[job_id]["progress"] = idx + 1
-            
-            # Base delay is 100ms per row. Divided by speed multiplier.
             await asyncio.sleep(0.1 / req.speed_multiplier)
             
         if ACTIVE_REPLAYS[job_id]["status"] != "STOPPED":
             ACTIVE_REPLAYS[job_id]["status"] = "COMPLETED"
-            
-        if replay_producer:
-            replay_producer.flush()
             
     except Exception as e:
         ACTIVE_REPLAYS[job_id]["status"] = f"FAILED: {str(e)}"
@@ -767,81 +773,72 @@ async def observer_health_loop():
         await asyncio.sleep(2)
 
 async def observer_kafka_loop():
-    """Listens to raw Kafka streams to build the live charts and compute latency"""
-    conf = {
-        'bootstrap.servers': KAFKA_BROKER,
-        'group.id': f'master_dashboard_observer_{uuid.uuid4().hex[:8]}',
-        'auto.offset.reset': 'latest',
-        'enable.auto.commit': False
-    }
+    topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
+    consumer = AIOKafkaConsumer(
+        *topics,
+        bootstrap_servers=KAFKA_BROKER,
+        group_id=f'master_dashboard_observer_{uuid.uuid4().hex[:8]}',
+        auto_offset_reset='latest'
+    )
+    
     try:
-        consumer = Consumer(conf)
-        topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
-        consumer.subscribe(topics)
-    except:
-        consumer = None
+        await consumer.start()
+    except Exception as e:
+        print(f"Observer Consumer failed to start: {e}")
+        return
 
-    while True:
-        if not consumer:
-            await asyncio.sleep(5)
-            continue
-            
-        try:
-            msg = consumer.poll(0.1)
-            if msg is None or msg.error():
-                await asyncio.sleep(0.01)
-                continue
+    try:
+        async for msg in consumer:
+            try:
+                val = msg.value
+                if not val: continue
+                
+                payload = json.loads(val.decode('utf-8'))
+                meta = payload.get("metadata", payload)
+                data_body = payload.get("data", payload)
+                
+                v_id = meta.get("vehicle_id") or payload.get("source_id", "unknown_sim")
+                module = meta.get("module", payload.get("module", "unknown")).lower()
+                ingest_ts_str = meta.get("ingest_ts", payload.get("ingest_ts"))
 
-            val = msg.value()
-            if not val: continue
-            
-            payload = json.loads(val.decode('utf-8'))
-            meta = payload.get("metadata", payload)
-            data_body = payload.get("data", payload)
-            
-            v_id = meta.get("vehicle_id") or payload.get("source_id", "unknown_sim")
-            module = meta.get("module", payload.get("module", "unknown")).lower()
-            ingest_ts_str = meta.get("ingest_ts", payload.get("ingest_ts"))
+                if v_id not in OBSERVER_CACHE["vehicles"]:
+                    OBSERVER_CACHE["vehicles"][v_id] = {
+                        "accepted": 0, "rejected": 0, "latency_sum": 0.0, "latency_count": 0,
+                        "last_seen": time.time(), "latest_payload": {}, "module_payloads": {},
+                        "history": defaultdict(lambda: {
+                            "timestamps": deque(maxlen=OBSERVER_HISTORY_LEN),
+                            "metrics": defaultdict(lambda: deque(maxlen=OBSERVER_HISTORY_LEN))
+                        })
+                    }
 
-            if v_id not in OBSERVER_CACHE["vehicles"]:
-                OBSERVER_CACHE["vehicles"][v_id] = {
-                    "accepted": 0, "rejected": 0, "latency_sum": 0.0, "latency_count": 0,
-                    "last_seen": time.time(), "latest_payload": {}, "module_payloads": {},
-                    "history": defaultdict(lambda: {
-                        "timestamps": deque(maxlen=OBSERVER_HISTORY_LEN),
-                        "metrics": defaultdict(lambda: deque(maxlen=OBSERVER_HISTORY_LEN))
-                    })
-                }
+                entry = OBSERVER_CACHE["vehicles"][v_id]
+                entry["accepted"] += 1
+                entry["last_seen"] = time.time()
 
-            entry = OBSERVER_CACHE["vehicles"][v_id]
-            entry["accepted"] += 1
-            entry["last_seen"] = time.time()
+                latency_ms = 0.0
+                if ingest_ts_str:
+                    try:
+                        ts = pd.to_datetime(ingest_ts_str, utc=True)
+                        latency_ms = max(0, (pd.Timestamp.utcnow() - ts).total_seconds() * 1000)
+                    except: pass
 
-            # Compute Live Latency
-            latency_ms = 0.0
-            if ingest_ts_str:
-                try:
-                    ts = pd.to_datetime(ingest_ts_str, utc=True)
-                    latency_ms = max(0, (pd.Timestamp.utcnow() - ts).total_seconds() * 1000)
-                except: pass
+                entry["latency_sum"] += latency_ms
+                entry["latency_count"] += 1
+                entry["latest_payload"] = payload
+                entry["module_payloads"][module] = payload
 
-            entry["latency_sum"] += latency_ms
-            entry["latency_count"] += 1
-            entry["latest_payload"] = payload
-            entry["module_payloads"][module] = payload
+                now_str = datetime.datetime.utcnow().strftime("%H:%M:%S")
+                mod_hist = entry["history"][module]
+                mod_hist["timestamps"].append(now_str)
 
-            # Buffer History for React Charts
-            now_str = datetime.datetime.utcnow().strftime("%H:%M:%S")
-            mod_hist = entry["history"][module]
-            mod_hist["timestamps"].append(now_str)
+                for k, v in data_body.items():
+                    if isinstance(v, (int, float)) and not isinstance(v, bool):
+                        mod_hist["metrics"][k].append(v)
 
-            for k, v in data_body.items():
-                if isinstance(v, (int, float)) and not isinstance(v, bool):
-                    mod_hist["metrics"][k].append(v)
-
-        except Exception:
-            pass
-        await asyncio.sleep(0.01)
+            except Exception:
+                pass
+    finally:
+        await consumer.stop()
 
 @app.get("/api/observer/snapshot")
 def get_observer_snapshot():
