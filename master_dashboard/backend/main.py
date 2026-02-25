@@ -6,8 +6,8 @@ import asyncio
 import pandas as pd
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from confluent_kafka import Consumer, TopicPartition
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from confluent_kafka import Consumer, TopicPartition  # Kept ONLY for writer metrics fallback
+from aiokafka import AIOKafkaConsumer
 from utils import safe_read_json, safe_read_pickle
 from concurrent.futures import ProcessPoolExecutor
 import plotly.express as px
@@ -17,7 +17,6 @@ import datetime
 from collections import defaultdict, deque
 import aiohttp
 import re
-from collections import defaultdict, deque
 
 # --- OBSERVER & NETWORK STATE ---
 PORTS_TO_CHECK = {
@@ -61,7 +60,6 @@ app.add_middleware(
 )
 
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 VEHICLE_MODULES = ["battery", "body", "engine", "transmission", "tyre"]
 DELTA_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "bronze")
 SILVER_ROOT = os.path.join(PROJECT_ROOT, "data", "delta", "silver")
@@ -82,13 +80,6 @@ except ImportError:
     GOLD_ENABLED_MODULES = ["engine", "transmission", "battery", "body", "tyre"]
     GOLD_WEIGHTS = {"engine": 0.35, "transmission": 0.25, "battery": 0.20, "body": 0.10, "tyre": 0.10}
     GOLD_PENALTIES = {"engine": 30.0, "transmission": 25.0, "battery": 20.0}
-# --- REPLAY STATE ---
-REPLAY_SCENARIOS_DIR = os.path.join(PROJECT_ROOT, "data", "scenarios")
-os.makedirs(REPLAY_SCENARIOS_DIR, exist_ok=True) # Ensure directory exists
-
-ACTIVE_REPLAYS = {}
-
-replay_producer: AIOKafkaProducer = None
 
 # --- CACHES FOR HIGH-FREQUENCY POLLING ---
 WRITER_METRICS_CACHE = {
@@ -314,25 +305,12 @@ async def update_inference_metrics_loop():
 
 @app.on_event("startup")
 async def startup_event():
-    global replay_producer
-    replay_producer = AIOKafkaProducer(bootstrap_servers=KAFKA_BROKER)
-    try:
-        await replay_producer.start()
-    except Exception as e:
-        print(f"Replay Producer failed to start: {e}")
-
     asyncio.create_task(update_writer_metrics_loop())
     asyncio.create_task(update_inference_metrics_loop())
     asyncio.create_task(update_gold_metrics_loop())
     asyncio.create_task(update_alerts_metrics_loop())
     asyncio.create_task(observer_health_loop())      
     asyncio.create_task(observer_kafka_loop())
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    global replay_producer
-    if replay_producer:
-        await replay_producer.stop()
 
 @app.get("/health")
 def health_check():
@@ -638,98 +616,6 @@ def analyze_dtc(module: str, source_id: str, peak_ts: str):
     except Exception as e:
         return {"error": f"DTC Analysis computation failed: {str(e)}"}
     
-# --- TELEMETRY REPLAY ENDPOINTS ---
-
-class ReplayRequest(BaseModel):
-    scenario_file: str
-    target_sim_id: str = "sim_replay_01"
-    speed_multiplier: float = 1.0
-
-async def _replay_worker(job_id: str, req: ReplayRequest):
-    try:
-        file_path = os.path.join(REPLAY_SCENARIOS_DIR, req.scenario_file)
-        if file_path.endswith('.parquet'):
-            df = pd.read_parquet(file_path)
-        elif file_path.endswith('.csv'):
-            df = pd.read_csv(file_path)
-        else:
-            raise ValueError("Unsupported file format")
-
-        ACTIVE_REPLAYS[job_id]["total_rows"] = len(df)
-        
-        for idx, row in df.iterrows():
-            if ACTIVE_REPLAYS[job_id]["status"] == "STOPPING":
-                ACTIVE_REPLAYS[job_id]["status"] = "STOPPED"
-                break
-                
-            payload = row.dropna().to_dict()
-            payload["source_id"] = req.target_sim_id 
-            
-            for k, v in payload.items():
-                if isinstance(v, (pd.Timestamp, datetime.datetime)):
-                    payload[k] = v.isoformat()
-                    
-            module = payload.get("module", "engine").lower()
-            topic = f"telemetry.{module}"
-            
-            if replay_producer:
-                await replay_producer.send_and_wait(
-                    topic, 
-                    key=req.target_sim_id.encode('utf-8'), 
-                    value=json.dumps(payload).encode('utf-8')
-                )
-                
-            ACTIVE_REPLAYS[job_id]["progress"] = idx + 1
-            await asyncio.sleep(0.1 / req.speed_multiplier)
-            
-        if ACTIVE_REPLAYS[job_id]["status"] != "STOPPED":
-            ACTIVE_REPLAYS[job_id]["status"] = "COMPLETED"
-            
-    except Exception as e:
-        ACTIVE_REPLAYS[job_id]["status"] = f"FAILED: {str(e)}"
-
-@app.get("/api/replay/scenarios")
-def get_replay_scenarios():
-    """Powers the dropdown menu to select a historical file"""
-    if not os.path.exists(REPLAY_SCENARIOS_DIR):
-        return {"scenarios": []}
-    files = [f for f in os.listdir(REPLAY_SCENARIOS_DIR) if f.endswith('.parquet') or f.endswith('.csv')]
-    return {"scenarios": files}
-
-@app.get("/api/replay/active")
-def get_active_replays():
-    """Powers the Active Replay Jobs table"""
-    return ACTIVE_REPLAYS
-
-@app.post("/api/replay/start")
-def start_replay(req: ReplayRequest):
-    """Fires up an asynchronous injection task"""
-    if not replay_producer:
-        return {"error": "Kafka Producer not connected."}
-        
-    job_id = str(uuid.uuid4())[:8]
-    ACTIVE_REPLAYS[job_id] = {
-        "job_id": job_id,
-        "scenario": req.scenario_file,
-        "sim_id": req.target_sim_id,
-        "status": "RUNNING",
-        "progress": 0,
-        "total_rows": 0,
-        "speed": req.speed_multiplier,
-        "start_time": datetime.datetime.utcnow().isoformat()
-    }
-    asyncio.create_task(_replay_worker(job_id, req))
-    return {"success": True, "job_id": job_id}
-
-@app.post("/api/replay/stop/{job_id}")
-def stop_replay(job_id: str):
-    """Gracefully halts an active injection"""
-    if job_id in ACTIVE_REPLAYS:
-        if ACTIVE_REPLAYS[job_id]["status"] == "RUNNING":
-            ACTIVE_REPLAYS[job_id]["status"] = "STOPPING"
-        return {"success": True}
-    return {"error": "Job not found"}
-
 # --- TELEMETRY OBSERVER & REPLAY DASHBOARD ENDPOINTS ---
 
 async def observer_health_loop():
@@ -773,21 +659,21 @@ async def observer_health_loop():
         await asyncio.sleep(2)
 
 async def observer_kafka_loop():
+    """Listens to raw Kafka streams using purely asynchronous aiokafka to prevent event-loop blocking"""
     topics = [f"telemetry.{m}" for m in VEHICLE_MODULES]
+    unique_group_id = f"master_dashboard_observer_{uuid.uuid4().hex[:8]}"
+    
     consumer = AIOKafkaConsumer(
         *topics,
         bootstrap_servers=KAFKA_BROKER,
-        group_id=f'master_dashboard_observer_{uuid.uuid4().hex[:8]}',
-        auto_offset_reset='latest'
+        group_id=unique_group_id, 
+        auto_offset_reset="latest"
     )
-    
-    try:
-        await consumer.start()
-    except Exception as e:
-        print(f"Observer Consumer failed to start: {e}")
-        return
 
     try:
+        await consumer.start()
+        print(f"Master Dashboard connected to observer topics: {topics}")
+        
         async for msg in consumer:
             try:
                 val = msg.value
@@ -815,11 +701,15 @@ async def observer_kafka_loop():
                 entry["accepted"] += 1
                 entry["last_seen"] = time.time()
 
+                # Compute Live Latency safely using UTC
                 latency_ms = 0.0
                 if ingest_ts_str:
                     try:
-                        ts = pd.to_datetime(ingest_ts_str, utc=True)
-                        latency_ms = max(0, (pd.Timestamp.utcnow() - ts).total_seconds() * 1000)
+                        ts = datetime.datetime.fromisoformat(ingest_ts_str)
+                        if ts.tzinfo is None:
+                            ts = ts.replace(tzinfo=datetime.timezone.utc)
+                        latency_ms = (datetime.datetime.now(datetime.timezone.utc) - ts).total_seconds() * 1000
+                        if latency_ms < 0: latency_ms = 0
                     except: pass
 
                 entry["latency_sum"] += latency_ms
@@ -827,7 +717,8 @@ async def observer_kafka_loop():
                 entry["latest_payload"] = payload
                 entry["module_payloads"][module] = payload
 
-                now_str = datetime.datetime.utcnow().strftime("%H:%M:%S")
+                # Buffer History for React Charts
+                now_str = datetime.datetime.now(datetime.timezone.utc).strftime("%H:%M:%S")
                 mod_hist = entry["history"][module]
                 mod_hist["timestamps"].append(now_str)
 
@@ -835,7 +726,7 @@ async def observer_kafka_loop():
                     if isinstance(v, (int, float)) and not isinstance(v, bool):
                         mod_hist["metrics"][k].append(v)
 
-            except Exception:
+            except Exception as e:
                 pass
     finally:
         await consumer.stop()
