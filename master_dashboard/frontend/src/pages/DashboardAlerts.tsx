@@ -72,32 +72,45 @@ export default function DashboardAlerts() {
   };
 
   // --- GRID LOGIC ---
-  const tableData = useMemo(() => {
-    if (!metrics) return [];
-    return activeTab === 'OPEN' ? metrics.open_alerts : metrics.closed_alerts;
-  }, [metrics, activeTab]);
-
   const tableColDefs = useMemo<ColDef[]>(() => [
     { 
       field: 'alert_id', 
       headerName: 'ALERT ID', 
-      width: 120, 
+      flex: 1,
+      minWidth: 120, 
       valueFormatter: p => p.value ? p.value.substring(0, 8) : '',
       cellStyle: { fontFamily: 'monospace', fontWeight: 'bold' }
     },
-    { field: 'module', headerName: 'MODULE', width: 130, valueFormatter: p => p.value?.toUpperCase() },
-    { field: 'source_id', headerName: 'VEHICLE', width: 120 },
-    { field: 'peak_anomaly_ts', headerName: 'PEAK ANOMALY TS', width: 210 },
+    { 
+      field: 'module', 
+      headerName: 'MODULE', 
+      flex: 1, 
+      minWidth: 130, 
+      valueFormatter: p => p.value?.toUpperCase() 
+    },
+    { 
+      field: 'source_id', 
+      headerName: 'VEHICLE', 
+      flex: 1, 
+      minWidth: 120 
+    },
+    { 
+      field: 'peak_anomaly_ts', 
+      headerName: 'PEAK ANOMALY TS', 
+      flex: 1.5, // Gives the timestamp column slightly more room to breathe
+      minWidth: 200 
+    },
     { 
       field: 'max_composite_score', 
       headerName: 'SEVERITY SCORE', 
-      width: 140, 
+      flex: 1,
+      minWidth: 140, 
       type: 'numericColumn',
       valueFormatter: p => p.value ? parseFloat(p.value).toFixed(2) : ''
     },
     {
       headerName: 'ACTION',
-      width: 160,
+      width: 160, // Kept as fixed width so the button stays a consistent size
       pinned: 'right',
       cellRenderer: (params: any) => (
         <Button 
