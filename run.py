@@ -5,19 +5,23 @@ import psutil
 import shutil
 import subprocess
 import webbrowser
+from pathlib import Path
 
 os.environ["PYTHONIOENCODING"] = "utf-8"
 os.environ["PYTHONUTF8"] = "1"
 os.environ["PYTHONUNBUFFERED"] = "1"
 
-VENV_SCRIPTS = os.path.abspath(os.path.join(".venv", "Scripts"))
-VENV_PYTHON = os.path.join(VENV_SCRIPTS, "python.exe")
+# --- Define Absolute Paths & Environments ---
+ROOT_DIR = os.path.abspath(os.getcwd())
+VENV_PYTHON = os.path.join(ROOT_DIR, ".venv", "Scripts", "python.exe")
+DASH_VENV_PYTHON = os.path.join(ROOT_DIR, "master_dashboard", ".venv_dash", "Scripts", "python.exe")
+
+NODE_DIR = os.path.join(ROOT_DIR, "tools", "node")
+NPM_CACHE = os.path.join(ROOT_DIR, "tools", "npm_cache")
 
 if not os.path.exists(VENV_PYTHON):
     print(f"Warning: {VENV_PYTHON} not found. Using system Python.")
     VENV_PYTHON = sys.executable 
-else:
-    os.environ["PATH"] = VENV_SCRIPTS + os.pathsep + os.environ.get("PATH", "")
 
 KAFKA_BIN_DIR = r"C:\kafka\bin\windows"
 KAFKA_LOG_DIR = r"C:\tmp\kafka-logs"
@@ -33,6 +37,7 @@ KAFKA_TOPICS = [
 
 os.makedirs("logs", exist_ok=True)
 
+# --- Service Maps ---
 STREAMLIT_APPS = [
     {"file": r"alerts_service\dashboard_alerts.py", "port": 8501, "name": "Alerts_Dashboard"},
     {"file": r"gold_service\dashboard_gold.py", "port": 8502, "name": "Gold_Dashboard"},
@@ -41,13 +46,15 @@ STREAMLIT_APPS = [
     {"file": r"telemetry_observer\ui.py", "port": 8505, "name": "Observer_UI"}
 ]
 
+# Format: "Service_Name": ([cmd_array_or_string], is_detached, cwd_path)
 SERVICE_MAP = {
-    "telemetry_observer": (r"python telemetry_observer\observer_backend.py", False),
-    "alerts": (r"python alerts_service\app.py", False),
-    "gold": (r"python gold_service\app.py", False),
-    "inference": (r"python inference_service\start_inference_cluster.py", False),
-    "writer": (r"python writer_service\src\start_writer_cluster.py", False),
-    "ingest": (r"python -m uvicorn ingest.app.main:app --port 8000 --reload", True) 
+    "telemetry_observer": ([VENV_PYTHON, r"telemetry_observer\api.py"], False, ROOT_DIR),
+    "alerts": ([VENV_PYTHON, r"alerts_service\app.py"], False, ROOT_DIR),
+    "gold": ([VENV_PYTHON, r"gold_service\app.py"], False, ROOT_DIR),
+    "inference": ([VENV_PYTHON, r"inference_service\start_inference_cluster.py"], False, ROOT_DIR),
+    "writer": ([VENV_PYTHON, r"writer_service\src\start_writer_cluster.py"], False, ROOT_DIR),
+    # Ingest remains detached so you can see the FastAPI logs in a cmd window
+    "ingest": (f"{VENV_PYTHON} -m uvicorn ingest.app.main:app --port 8000 --reload", True, ROOT_DIR) 
 }
 
 RESET_SCRIPTS = [
@@ -55,38 +62,84 @@ RESET_SCRIPTS = [
     r"tools\reset_vehicle_health_gold.py",
     r"tools\reset_inference.py",
     r"tools\reset_writer.py",
-    r"tools\reset_replay.py"
+    r"tools\reset_replay.py",
+    r"tools\reset_dashboard_cache.py" # Integrated RAM wipe
 ]
 
 running_processes = []
 open_log_files = []
 
-def run_background_task(cmd, name, wait_time=0):
+# --- Execution Helpers ---
+
+def run_background_task(cmd_list, name, cwd_path, wait_time=0):
     print(f"--- Starting {name} (Logs: logs/{name}.log) ---")
     log_file = open(f"logs/{name}.log", "a", encoding="utf-8") 
     open_log_files.append(log_file)
     
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.getcwd()
+    env["PYTHONPATH"] = ROOT_DIR
     
-    proc = subprocess.Popen(cmd, shell=True, stdout=log_file, stderr=subprocess.STDOUT, env=env)
-    running_processes.append({"proc": proc, "name": name})
+    proc = subprocess.Popen(cmd_list, cwd=cwd_path, stdout=log_file, stderr=subprocess.STDOUT, env=env)
+    running_processes.append({"proc": proc, "name": name, "detached": False})
     
     if wait_time > 0:
         time.sleep(wait_time)
 
-def run_detached_console(cmd, name, wait_time=0):
+def run_detached_console(cmd_str, name, cwd_path, wait_time=0):
     print(f"--- Starting {name} in a new window ---")
     env = os.environ.copy()
-    env["PYTHONPATH"] = os.getcwd()
+    env["PYTHONPATH"] = ROOT_DIR
     
-    full_cmd = f'title {name} && {cmd}'
-    proc = subprocess.Popen(["cmd.exe", "/k", full_cmd], creationflags=subprocess.CREATE_NEW_CONSOLE, env=env)
+    full_cmd = f'title {name} && {cmd_str}'
+    # CREATE_NEW_CONSOLE ensures Python retains ownership of the PID for easy killing later
+    proc = subprocess.Popen(
+        ["cmd.exe", "/k", full_cmd], 
+        cwd=cwd_path, 
+        creationflags=subprocess.CREATE_NEW_CONSOLE, 
+        env=env
+    )
     
-    running_processes.append({"proc": proc, "name": name})
+    running_processes.append({"proc": proc, "name": name, "detached": True})
     
     if wait_time > 0:
         time.sleep(wait_time)
+
+# --- Master Dashboard Launchers ---
+
+def launch_master_backend():
+    print("--- Starting Master Dashboard Backend (Port 8005) ---")
+    log_file = open(f"logs/Master_Dash_Backend.log", "a", encoding="utf-8")
+    open_log_files.append(log_file)
+    
+    env = os.environ.copy()
+    env["PYTHONPATH"] = ROOT_DIR
+    cmd = [DASH_VENV_PYTHON, "-m", "uvicorn", "backend.main:app", "--port", "8005"]
+    
+    dash_dir = os.path.join(ROOT_DIR, "master_dashboard")
+    proc = subprocess.Popen(cmd, cwd=dash_dir, stdout=log_file, stderr=subprocess.STDOUT, env=env)
+    running_processes.append({"proc": proc, "name": "Master_Dash_Backend", "detached": False})
+
+def launch_master_frontend():
+    print("--- Starting Master Dashboard Frontend (React/Vite) ---")
+    log_file = open(f"logs/Master_Dash_Frontend.log", "a", encoding="utf-8")
+    open_log_files.append(log_file)
+    
+    env = os.environ.copy()
+    env["PATH"] = NODE_DIR + os.pathsep + env.get("PATH", "")
+    env["npm_config_cache"] = NPM_CACHE
+    
+    frontend_dir = os.path.join(ROOT_DIR, "master_dashboard", "frontend")
+    
+    cmd = "npm run dev -- --port 5173 --strictPort"
+    proc = subprocess.Popen(cmd, shell=True, cwd=frontend_dir, stdout=log_file, stderr=subprocess.STDOUT, env=env)
+    running_processes.append({"proc": proc, "name": "Master_Dash_Frontend", "detached": False})
+    
+    print("   ⏳ Waiting for Vite to compile (6s)...")
+    time.sleep(6)
+    print("   🌐 Opening browser at http://localhost:5173")
+    webbrowser.open("http://localhost:5173")
+
+# --- Process Management ---
 
 def kill_process_tree(pid, name):
     try:
@@ -105,12 +158,50 @@ def kill_process_tree(pid, name):
     except Exception:
         pass
 
+def hunt_and_kill_port(port, name):
+    for conn in psutil.net_connections(kind='inet'):
+        if conn.laddr.port == port and conn.status == 'LISTEN':
+            try:
+                p = psutil.Process(conn.pid)
+                p.terminate()
+                p.wait(timeout=2)
+                print(f"Force-closed orphaned {name} on port {port}.")
+            except Exception:
+                pass
+
+def hunt_zombie_replay_workers():
+    zombies = []
+    for p in psutil.process_iter(['pid', 'name', 'cmdline']):
+        try:
+            cmdline = p.info['cmdline']
+            if cmdline and 'python' in p.info['name'].lower():
+                cmd_str = " ".join(cmdline).lower()
+                if 'replay' in cmd_str and 'run.py' not in cmd_str:
+                    zombies.append(p)
+        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            pass
+    
+    if zombies:
+        print(f"\n⚠️ WARNING: Detected {len(zombies)} orphaned Replay Worker process(es) still running in the background.")
+        ans = input("Do you want to force-kill these zombie workers? (y/n): ").lower()
+        if ans == 'y':
+            for z in zombies:
+                try:
+                    z.terminate()
+                    z.wait(timeout=2)
+                except psutil.TimeoutExpired:
+                    z.kill()
+                except Exception:
+                    pass
+            print("   ✅ Zombie replay workers eliminated.")
+        else:
+            print("   ℹ️ Leaving zombie workers alive.")
+
 def restart_service(service_key):
     service_name = f"Service_{service_key}"
-    
     target_idx = -1
     for i, p_info in enumerate(running_processes):
-        if p_info['name'].lower() == service_name.lower():
+        if p_info['name'].lower() == service_name.lower() and not p_info.get("detached"):
             target_idx = i
             break
             
@@ -121,13 +212,13 @@ def restart_service(service_key):
         running_processes.pop(target_idx)
         time.sleep(2) 
     else:
-        print(f"\n[RESTART] {service_name} was not running. Starting fresh.")
+        print(f"\n[RESTART] {service_name} background task was not found. Starting fresh.")
 
-    cmd, is_detached = SERVICE_MAP[service_key]
+    cmd, is_detached, cwd = SERVICE_MAP[service_key]
     if is_detached:
-        run_detached_console(cmd, service_name, 2)
+        run_detached_console(cmd, service_name, cwd, 2)
     else:
-        run_background_task(cmd, service_name, 2)
+        run_background_task(cmd, service_name, cwd, 2)
     print(f"[RESTART] {service_name} is back online.\n")
 
 def cleanup():
@@ -135,8 +226,7 @@ def cleanup():
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
     
-    input("Have you stopped the replay worker from the notebook? (Press Enter to confirm): ")
-    
+    # Kills absolutely everything including detached CMD windows
     for p_info in reversed(running_processes):
         print(f"Terminating {p_info['name']}...")
         kill_process_tree(p_info['proc'].pid, p_info['name'])
@@ -144,8 +234,11 @@ def cleanup():
     for f in open_log_files:
         try: f.close()
         except: pass
+        
+    hunt_and_kill_port(5173, "Node/Vite") 
+    hunt_zombie_replay_workers()
             
-    print("\nStream offline. All detached windows and background services closed.")
+    print("\nStream offline. All background services and detached windows closed safely.")
     sys.exit(0)
 
 def main():
@@ -172,17 +265,21 @@ def main():
         if infra_is_running:
             print("Force closing Kafka/ZK to allow log deletion...")
             for port in [2181, 9092]:
-                for conn in psutil.net_connections():
-                    if conn.laddr.port == port and conn.status == 'LISTEN':
-                        kill_process_tree(conn.pid, f"Port {port}")
+                hunt_and_kill_port(port, f"Kafka/ZK Port {port}")
             time.sleep(2)
             
         print("\n--- Hard Resetting Infrastructure ---")
+        
+        print("Clearing in-memory API Caches (Ports 8000-8006)...")
+        for port in range(8000, 8007):
+            hunt_and_kill_port(port, f"API Port {port}")
+        time.sleep(2)
+        
         shutil.rmtree(KAFKA_LOG_DIR, ignore_errors=True)
         shutil.rmtree(ZK_LOG_DIR, ignore_errors=True)
         
-        run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
-        run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+        run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", ROOT_DIR, 20)
+        run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", ROOT_DIR, 30)
         
         print("\n--- Recreating Kafka Topics ---")
         for topic in KAFKA_TOPICS:
@@ -191,59 +288,80 @@ def main():
 
         print("\n--- Resetting Spark/Stream Files ---")
         for script in RESET_SCRIPTS:
-            subprocess.run(f'python {script}', shell=True, input="yes\n", text=True)
+            script_path = os.path.join(ROOT_DIR, script)
+            subprocess.run([VENV_PYTHON, script_path], input="yes\n", text=True)
             
     else:
         if not infra_is_running:
             print("\n--- Booting Infrastructure ---")
-            run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", 20)
-            run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", 30)
+            run_detached_console(r"tools\kafka\start_zookeeper.bat", "Zookeeper", ROOT_DIR, 20)
+            run_detached_console(r"tools\kafka\start_kafka.bat", "Kafka", ROOT_DIR, 30)
         else:
             print("\n--- Resuming Existing Infrastructure ---")
 
-    start_ui = input("\nStart Streamlit Dashboards? (y/n): ").lower()
-    if start_ui == 'y':
-        for app in STREAMLIT_APPS:
-            cmd = f'streamlit run {app["file"]} --server.port {app["port"]} --server.headless true'
-            run_background_task(cmd, app['name'])
-            time.sleep(5) 
-            webbrowser.open(f"http://localhost:{app['port']}")
-            time.sleep(15) 
+    # --- UI Launch Prompt Cascade ---
+    start_master = False
+    start_streamlit = False
+    
+    ans_both = input("\nStart Streamlit AND Master Dashboard? (y/n): ").lower()
+    if ans_both == 'y':
+        start_master = True
+        start_streamlit = True
+    else:
+        ans_master = input("Start Master Dashboard ONLY? (y/n): ").lower()
+        if ans_master == 'y':
+            start_master = True
+        else:
+            ans_streamlit = input("Start Streamlit Dashboards ONLY? (y/n): ").lower()
+            if ans_streamlit == 'y':
+                start_streamlit = True
 
-    start_serv = input("\nStart Services? (y/n): ").lower()
+    start_serv = input("\nStart Backend Services? (y/n): ").lower()
     if start_serv == 'y':
-        for service_key, (cmd, is_detached) in SERVICE_MAP.items():
+        for service_key, (cmd, is_detached, cwd) in SERVICE_MAP.items():
             service_name = f"Service_{service_key}"
             if is_detached:
-                run_detached_console(cmd, service_name, 5)
+                run_detached_console(cmd, service_name, cwd, 5)
             else:
-                run_background_task(cmd, service_name, 10)
+                run_background_task(cmd, service_name, cwd, 10)
+
+    if start_master:
+        launch_master_backend()
+        time.sleep(4)
+        launch_master_frontend()
+        
+    if start_streamlit:
+        for app in STREAMLIT_APPS:
+            cmd = [VENV_PYTHON, "-m", "streamlit", "run", app["file"], "--server.port", str(app["port"]), "--server.headless", "true"]
+            run_background_task(cmd, app['name'], ROOT_DIR)
+            time.sleep(5) 
+            webbrowser.open(f"http://localhost:{app['port']}")
+            time.sleep(5)
 
     print("\n" + "="*50)
-    print("ALL SERVICES ACTIVE.")
+    print("SYSTEM READY.")
     print("Action: Start replay using the Notebook.")
     print("="*50)
     
     print("\nINTERACTIVE SERVICE MANAGER")
-    print(f"Available services to restart: {list(SERVICE_MAP.keys())}")
+    print(f"Available background services to restart: {[k for k, v in SERVICE_MAP.items() if not v[1]]}")
     print("Type a service name and press Enter to restart it.")
     print("Press Ctrl+C at any time to safely shut down the entire emulator.")
     
     while True:
         try:
             target = input("\nemulator> ").strip().lower()
-            if target in SERVICE_MAP:
+            if target in SERVICE_MAP and not SERVICE_MAP[target][1]:
                 restart_service(target)
             elif target:
-                print(f"Unknown service '{target}'. Valid options: {list(SERVICE_MAP.keys())}")
+                print(f"Unknown or detached service '{target}'. Cannot restart via console.")
         except KeyboardInterrupt:
-            # Catch the Ctrl+C here to break the input loop and trigger cleanup naturally
             break
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        pass # Caught by the inner loop or general execution, proceed to cleanup
+        pass 
     finally:
         cleanup()
