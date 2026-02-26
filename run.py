@@ -48,11 +48,19 @@ STREAMLIT_APPS = [
 
 # Format: "Service_Name": ([cmd_array_or_string], is_detached, cwd_path)
 SERVICE_MAP = {
-    "telemetry_observer": ([VENV_PYTHON, r"telemetry_observer\api.py"], False, ROOT_DIR),
-    "alerts": ([VENV_PYTHON, r"alerts_service\app.py"], False, ROOT_DIR),
-    "gold": ([VENV_PYTHON, r"gold_service\app.py"], False, ROOT_DIR),
-    "inference": ([VENV_PYTHON, r"inference_service\start_inference_cluster.py"], False, ROOT_DIR),
-    "writer": ([VENV_PYTHON, r"writer_service\src\start_writer_cluster.py"], False, ROOT_DIR),
+    # Dedicated APIs for Master Dashboard
+    "api_observer": ([VENV_PYTHON, r"telemetry_observer\api.py"], False, ROOT_DIR),
+    "api_alerts": ([VENV_PYTHON, r"alerts_service\api.py"], False, ROOT_DIR),
+    "api_gold": ([VENV_PYTHON, r"gold_service\api.py"], False, ROOT_DIR),
+    "api_inference": ([VENV_PYTHON, r"inference_service\api.py"], False, ROOT_DIR),
+    "api_writer": ([VENV_PYTHON, r"writer_service\api.py"], False, ROOT_DIR),
+    
+    # Core Processing Engines
+    "engine_alerts": ([VENV_PYTHON, r"alerts_service\app.py"], False, ROOT_DIR),
+    "engine_gold": ([VENV_PYTHON, r"gold_service\app.py"], False, ROOT_DIR),
+    "engine_inference": ([VENV_PYTHON, r"inference_service\start_inference_cluster.py"], False, ROOT_DIR),
+    "engine_writer": ([VENV_PYTHON, r"writer_service\src\start_writer_cluster.py"], False, ROOT_DIR),
+    
     # Ingest remains detached so you can see the FastAPI logs in a cmd window
     "ingest": (f"{VENV_PYTHON} -m uvicorn ingest.app.main:app --port 8000 --reload", True, ROOT_DIR) 
 }
@@ -170,6 +178,7 @@ def hunt_and_kill_port(port, name):
                 pass
 
 def hunt_zombie_replay_workers():
+    print("   🔍 Scanning OS for orphaned zombie replay workers...")
     zombies = []
     for p in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
@@ -183,19 +192,24 @@ def hunt_zombie_replay_workers():
     
     if zombies:
         print(f"\n⚠️ WARNING: Detected {len(zombies)} orphaned Replay Worker process(es) still running in the background.")
-        ans = input("Do you want to force-kill these zombie workers? (y/n): ").lower()
-        if ans == 'y':
-            for z in zombies:
-                try:
-                    z.terminate()
-                    z.wait(timeout=2)
-                except psutil.TimeoutExpired:
-                    z.kill()
-                except Exception:
-                    pass
-            print("   ✅ Zombie replay workers eliminated.")
-        else:
-            print("   ℹ️ Leaving zombie workers alive.")
+        try:
+            ans = input("Do you want to force-kill these zombie workers? (y/n): ").lower()
+            if ans == 'y':
+                for z in zombies:
+                    try:
+                        z.terminate()
+                        z.wait(timeout=2)
+                    except psutil.TimeoutExpired:
+                        z.kill()
+                    except Exception:
+                        pass
+                print("   ✅ Zombie replay workers eliminated.")
+            else:
+                print("   ℹ️ Leaving zombie workers alive.")
+        except KeyboardInterrupt:
+            print("   ℹ️ Skipping zombie termination due to interrupt.")
+    else:
+        print("   ✅ No zombie replay workers found. System is clean.")
 
 def restart_service(service_key):
     service_name = f"Service_{service_key}"
@@ -323,7 +337,7 @@ def main():
             if is_detached:
                 run_detached_console(cmd, service_name, cwd, 5)
             else:
-                run_background_task(cmd, service_name, cwd, 10)
+                run_background_task(cmd, service_name, cwd, 3) # Wait slightly less between API booting
 
     if start_master:
         launch_master_backend()
@@ -332,7 +346,7 @@ def main():
         
     if start_streamlit:
         for app in STREAMLIT_APPS:
-            cmd = [VENV_PYTHON, "-m", "streamlit", "run", app["file"], "--server.port", str(app["port"]), "--server.headless", "true"]
+            cmd = [VENV_PYTHON, "-m", "streamlit", "run", app["file"], "--server.port", str(app["port"], "--server.headless", "true")]
             run_background_task(cmd, app['name'], ROOT_DIR)
             time.sleep(5) 
             webbrowser.open(f"http://localhost:{app['port']}")
@@ -344,24 +358,29 @@ def main():
     print("="*50)
     
     print("\nINTERACTIVE SERVICE MANAGER")
-    print(f"Available background services to restart: {[k for k, v in SERVICE_MAP.items() if not v[1]]}")
-    print("Type a service name and press Enter to restart it.")
+    print(f"Available background services to restart:")
+    for key in [k for k, v in SERVICE_MAP.items() if not v[1]]:
+        print(f"  - {key}")
+    print("\nType a service name and press Enter to restart it.")
     print("Press Ctrl+C at any time to safely shut down the entire emulator.")
     
     while True:
-        try:
-            target = input("\nemulator> ").strip().lower()
-            if target in SERVICE_MAP and not SERVICE_MAP[target][1]:
-                restart_service(target)
-            elif target:
-                print(f"Unknown or detached service '{target}'. Cannot restart via console.")
-        except KeyboardInterrupt:
-            break
+        target = input("\nemulator> ").strip().lower()
+        if target in SERVICE_MAP and not SERVICE_MAP[target][1]:
+            restart_service(target)
+        elif target:
+            print(f"Unknown or detached service '{target}'. Cannot restart via console.")
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        pass 
+        print("\n\n[Ctrl+C Detected: Interrupting sequence safely...]")
+    except Exception as e:
+        print(f"\n[Unexpected Error: {e}]")
     finally:
-        cleanup()
+        try:
+            cleanup()
+        except KeyboardInterrupt:
+            # Prevents traceback if you spam Ctrl+C while it's closing
+            pass
