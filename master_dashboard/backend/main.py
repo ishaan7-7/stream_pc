@@ -668,19 +668,23 @@ async def observer_kafka_loop():
         *topics,
         bootstrap_servers=KAFKA_BROKER,
         group_id=unique_group_id, 
-        auto_offset_reset="latest",
-        session_timeout_ms=45000,    # Tolerate up to 45 seconds of event loop blocking
-        heartbeat_interval_ms=15000  # Send heartbeats every 15 seconds
+        # CHANGED TO EARLIEST: This will force it to read the topic history
+        auto_offset_reset="earliest", 
+        session_timeout_ms=45000,
+        heartbeat_interval_ms=15000
     )
 
     try:
         await consumer.start()
-        print(f"Master Dashboard connected to observer topics: {topics}")
+        print(f"[OBSERVER] Connected to topics: {topics}. Waiting for data...")
         
         async for msg in consumer:
             try:
                 val = msg.value
                 if not val: continue
+                
+                # DEBUG: Print exactly what we received before it crashes
+                print(f"[OBSERVER DEBUG] Received raw bytes on {msg.topic}: {val[:100]}...")
                 
                 payload = json.loads(val.decode('utf-8'))
                 meta = payload.get("metadata", payload)
@@ -730,7 +734,11 @@ async def observer_kafka_loop():
                         mod_hist["metrics"][k].append(v)
 
             except Exception as e:
-                pass
+                # NO MORE SILENT FAILURES
+                print(f"[OBSERVER ERROR] Failed processing message: {e}")
+                
+    except Exception as e:
+        print(f"[OBSERVER FATAL] Consumer crashed: {e}")
     finally:
         await consumer.stop()
 
