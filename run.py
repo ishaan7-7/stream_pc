@@ -99,7 +99,6 @@ def run_detached_console(cmd_str, name, cwd_path, wait_time=0):
     env["PYTHONPATH"] = ROOT_DIR
     
     full_cmd = f'title {name} && {cmd_str}'
-    # CREATE_NEW_CONSOLE ensures Python retains ownership of the PID for easy killing later
     proc = subprocess.Popen(
         ["cmd.exe", "/k", full_cmd], 
         cwd=cwd_path, 
@@ -115,13 +114,14 @@ def run_detached_console(cmd_str, name, cwd_path, wait_time=0):
 # --- Master Dashboard Launchers ---
 
 def launch_master_backend():
-    print("--- Starting Master Dashboard Backend (Port 8005) ---")
+    print("--- Starting Master Dashboard Gateway (Port 8005) ---")
     log_file = open(f"logs/Master_Dash_Backend.log", "a", encoding="utf-8")
     open_log_files.append(log_file)
     
     env = os.environ.copy()
     env["PYTHONPATH"] = ROOT_DIR
-    cmd = [DASH_VENV_PYTHON, "-m", "uvicorn", "backend.main:app", "--port", "8005"]
+    # FIXED: Uses main_v2 to act as the Gateway to the 5 isolated APIs
+    cmd = [DASH_VENV_PYTHON, "-m", "uvicorn", "backend.main_v2:app", "--port", "8005"]
     
     dash_dir = os.path.join(ROOT_DIR, "master_dashboard")
     proc = subprocess.Popen(cmd, cwd=dash_dir, stdout=log_file, stderr=subprocess.STDOUT, env=env)
@@ -149,22 +149,39 @@ def launch_master_frontend():
 
 # --- Process Management ---
 
-def kill_process_tree(pid, name):
-    try:
-        parent = psutil.Process(pid)
-        children = parent.children(recursive=True)
-        for child in children:
-            try: child.terminate()
-            except: pass
-        _, alive = psutil.wait_procs(children, timeout=3)
-        for child in alive:
-            try: child.kill()
-            except: pass
-        parent.terminate()
-        parent.wait(timeout=3)
-        print(f"Successfully closed {name}.")
-    except Exception:
-        pass
+def kill_process(p_info):
+    """Smart killer: Uses graceful terminate for APIs, and absolute force for CMD windows."""
+    pid = p_info['proc'].pid
+    name = p_info['name']
+    is_detached = p_info.get('detached', False)
+
+    if is_detached:
+        # Windows native taskkill destroys the CMD window and all child JVM/Python processes instantly
+        subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        print(f"   ✅ Closed window for {name}.")
+    else:
+        try:
+            parent = psutil.Process(pid)
+            children = parent.children(recursive=True)
+            for child in children:
+                try: child.terminate()
+                except: pass
+            _, alive = psutil.wait_procs(children, timeout=3)
+            for child in alive:
+                try: child.kill()
+                except: pass
+            
+            parent.terminate()
+            try:
+                parent.wait(timeout=3) 
+                print(f"   ✅ Closed {name}.")
+            except psutil.TimeoutExpired:
+                # Fallback to absolute force
+                subprocess.run(["taskkill", "/F", "/T", "/PID", str(pid)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                print(f"   ✅ Force-closed {name}.")
+                
+        except Exception:
+            pass
 
 def hunt_and_kill_port(port, name):
     for conn in psutil.net_connections(kind='inet'):
@@ -173,7 +190,7 @@ def hunt_and_kill_port(port, name):
                 p = psutil.Process(conn.pid)
                 p.terminate()
                 p.wait(timeout=2)
-                print(f"Force-closed orphaned {name} on port {port}.")
+                print(f"   ✅ Force-closed orphaned {name} on port {port}.")
             except Exception:
                 pass
 
@@ -211,39 +228,51 @@ def hunt_zombie_replay_workers():
     else:
         print("   ✅ No zombie replay workers found. System is clean.")
 
-def restart_service(service_key):
-    service_name = f"Service_{service_key}"
+def restart_service(target):
+    if target == "dash_backend":
+        internal_name = "Master_Dash_Backend"
+    elif target == "dash_frontend":
+        internal_name = "Master_Dash_Frontend"
+    else:
+        internal_name = f"Service_{target}"
+        
     target_idx = -1
     for i, p_info in enumerate(running_processes):
-        if p_info['name'].lower() == service_name.lower() and not p_info.get("detached"):
+        if p_info['name'].lower() == internal_name.lower():
             target_idx = i
             break
             
     if target_idx != -1:
         p_info = running_processes[target_idx]
         print(f"\n[RESTART] Terminating existing {p_info['name']} (PID: {p_info['proc'].pid})...")
-        kill_process_tree(p_info['proc'].pid, p_info['name'])
+        kill_process(p_info)
         running_processes.pop(target_idx)
         time.sleep(2) 
     else:
-        print(f"\n[RESTART] {service_name} background task was not found. Starting fresh.")
+        print(f"\n[RESTART] {internal_name} background task was not found. Starting fresh.")
 
-    cmd, is_detached, cwd = SERVICE_MAP[service_key]
-    if is_detached:
-        run_detached_console(cmd, service_name, cwd, 2)
+    if target == "dash_backend":
+        launch_master_backend()
+    elif target == "dash_frontend":
+        launch_master_frontend()
     else:
-        run_background_task(cmd, service_name, cwd, 2)
-    print(f"[RESTART] {service_name} is back online.\n")
+        cmd, is_detached, cwd = SERVICE_MAP[target]
+        if is_detached:
+            run_detached_console(cmd, internal_name, cwd, 2)
+        else:
+            run_background_task(cmd, internal_name, cwd, 2)
+    print(f"[RESTART] {internal_name} is back online.\n")
 
 def cleanup():
     print("\n" + "="*40)
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
     
-    # Kills absolutely everything including detached CMD windows
     for p_info in reversed(running_processes):
         print(f"Terminating {p_info['name']}...")
-        kill_process_tree(p_info['proc'].pid, p_info['name'])
+        kill_process(p_info)
+        
+    print("   ✅ All orchestrated processes terminated.")
         
     for f in open_log_files:
         try: f.close()
@@ -268,9 +297,7 @@ def main():
         kill = input("Zookeeper/Kafka are already running. Kill them? (y/n): ")
         if kill.lower() == 'y':
             for port in [2181, 9092]:
-                for conn in psutil.net_connections():
-                    if conn.laddr.port == port and conn.status == 'LISTEN':
-                        kill_process_tree(conn.pid, f"Port {port}")
+                hunt_and_kill_port(port, f"Kafka/ZK Port {port}")
             infra_is_running = False
             time.sleep(2)
 
@@ -313,7 +340,6 @@ def main():
         else:
             print("\n--- Resuming Existing Infrastructure ---")
 
-    # --- UI Launch Prompt Cascade ---
     start_master = False
     start_streamlit = False
     
@@ -337,7 +363,7 @@ def main():
             if is_detached:
                 run_detached_console(cmd, service_name, cwd, 5)
             else:
-                run_background_task(cmd, service_name, cwd, 3) # Wait slightly less between API booting
+                run_background_task(cmd, service_name, cwd, 3) 
 
     if start_master:
         launch_master_backend()
@@ -346,7 +372,7 @@ def main():
         
     if start_streamlit:
         for app in STREAMLIT_APPS:
-            cmd = [VENV_PYTHON, "-m", "streamlit", "run", app["file"], "--server.port", str(app["port"], "--server.headless", "true")]
+            cmd = [VENV_PYTHON, "-m", "streamlit", "run", app["file"], "--server.port", str(app["port"]), "--server.headless", "true"]
             run_background_task(cmd, app['name'], ROOT_DIR)
             time.sleep(5) 
             webbrowser.open(f"http://localhost:{app['port']}")
@@ -357,19 +383,21 @@ def main():
     print("Action: Start replay using the Notebook.")
     print("="*50)
     
+    restartable_list = list(SERVICE_MAP.keys()) + ["dash_backend", "dash_frontend"]
+    
     print("\nINTERACTIVE SERVICE MANAGER")
-    print(f"Available background services to restart:")
-    for key in [k for k, v in SERVICE_MAP.items() if not v[1]]:
+    print(f"Available services to restart:")
+    for key in restartable_list:
         print(f"  - {key}")
     print("\nType a service name and press Enter to restart it.")
     print("Press Ctrl+C at any time to safely shut down the entire emulator.")
     
     while True:
         target = input("\nemulator> ").strip().lower()
-        if target in SERVICE_MAP and not SERVICE_MAP[target][1]:
+        if target in restartable_list:
             restart_service(target)
         elif target:
-            print(f"Unknown or detached service '{target}'. Cannot restart via console.")
+            print(f"Unknown service '{target}'. Please choose from the list above.")
 
 if __name__ == "__main__":
     try:
@@ -382,5 +410,4 @@ if __name__ == "__main__":
         try:
             cleanup()
         except KeyboardInterrupt:
-            # Prevents traceback if you spam Ctrl+C while it's closing
             pass
