@@ -1,3 +1,4 @@
+# File: C:\streaming_emulator\run.py
 import os
 import sys
 import time
@@ -45,6 +46,9 @@ STREAMLIT_APPS = [
     {"file": r"writer_service\dashboard_ops.py", "port": 8504, "name": "Ops_Dashboard"},
     {"file": r"telemetry_observer\ui.py", "port": 8505, "name": "Observer_UI"}
 ]
+
+# --- ADDITION: Watchtower Config ---
+WATCHTOWER_APP = {"file": r"tools\system_monitor.py", "port": 8506, "name": "Watchtower"}
 
 # Format: "Service_Name": ([cmd_array_or_string], is_detached, cwd_path)
 SERVICE_MAP = {
@@ -233,6 +237,9 @@ def restart_service(target):
         internal_name = "Master_Dash_Backend"
     elif target == "dash_frontend":
         internal_name = "Master_Dash_Frontend"
+    # --- ADDITION: Map watchtower for interactive restart ---
+    elif target == "watchtower":
+        internal_name = "Watchtower"
     else:
         internal_name = f"Service_{target}"
         
@@ -255,19 +262,25 @@ def restart_service(target):
         launch_master_backend()
     elif target == "dash_frontend":
         launch_master_frontend()
+    # --- ADDITION: Restart Watchtower Headless ---
+    elif target == "watchtower":
+        cmd = [VENV_PYTHON, "-m", "streamlit", "run", WATCHTOWER_APP["file"], "--server.port", str(WATCHTOWER_APP["port"]), "--server.headless", "true"]
+        run_background_task(cmd, WATCHTOWER_APP['name'], ROOT_DIR)
+        print(f"[RESTART] {internal_name} is back online.\n")
     else:
         cmd, is_detached, cwd = SERVICE_MAP[target]
         if is_detached:
             run_detached_console(cmd, internal_name, cwd, 2)
         else:
             run_background_task(cmd, internal_name, cwd, 2)
-    print(f"[RESTART] {internal_name} is back online.\n")
+        print(f"[RESTART] {internal_name} is back online.\n")
 
 def cleanup():
     print("\n" + "="*40)
     print("SHUTDOWN SEQUENCE INITIATED")
     print("="*40)
     
+    # Watchtower is automatically closed here because run_background_task adds it to running_processes
     for p_info in reversed(running_processes):
         print(f"Terminating {p_info['name']}...")
         kill_process(p_info)
@@ -365,6 +378,15 @@ def main():
             else:
                 run_background_task(cmd, service_name, cwd, 3) 
 
+    # --- ADDITION: Prompt for Watchtower App ---
+    start_watchtower = input("\nStart System Watchtower? (y/n): ").lower()
+    if start_watchtower == 'y':
+        cmd = [VENV_PYTHON, "-m", "streamlit", "run", WATCHTOWER_APP["file"], "--server.port", str(WATCHTOWER_APP["port"]), "--server.headless", "true"]
+        run_background_task(cmd, WATCHTOWER_APP['name'], ROOT_DIR)
+        print("   ⏳ Initializing Watchtower...")
+        time.sleep(3)
+        webbrowser.open(f"http://localhost:{WATCHTOWER_APP['port']}")
+
     if start_master:
         launch_master_backend()
         time.sleep(4)
@@ -383,7 +405,8 @@ def main():
     print("Action: Start replay using the Notebook.")
     print("="*50)
     
-    restartable_list = list(SERVICE_MAP.keys()) + ["dash_backend", "dash_frontend"]
+    # --- ADDITION: Added 'watchtower' to restartable_list ---
+    restartable_list = list(SERVICE_MAP.keys()) + ["dash_backend", "dash_frontend", "watchtower"]
     
     print("\nINTERACTIVE SERVICE MANAGER")
     print(f"Available services to restart:")
