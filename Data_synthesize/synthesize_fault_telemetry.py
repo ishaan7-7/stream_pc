@@ -3,14 +3,16 @@ import numpy as np
 from datetime import datetime, timedelta
 import random
 
+# --- CONFIGURATION ---
 INPUT_REAL_DATA = "raw_31800_engine.csv"  
-OUTPUT_FILE = "sim001_engine_40d.csv"
+OUTPUT_FILE = "sim001_engine_40d.csv"  # <-- Explicitly naming the new output file
 SIM_ID = "sim001"
-DAYS_TO_GENERATE = 40
+DAYS_TO_GENERATE = 40                  # <-- Explicitly set to 40 days
 TARGET_FREQ_SECONDS = 4
 BLOCK_MINUTES = 5
 ROWS_PER_BLOCK = int((BLOCK_MINUTES * 60) / TARGET_FREQ_SECONDS)
 
+# Fault injection timeline
 FAULT_START_DAY = 10
 FAULT_END_DAY = 38
 
@@ -47,13 +49,15 @@ def smooth_seams(df, window=5):
     return df
 
 def apply_vacuum_leak_physics(df, day_index):
+    # Days 0-9 and Days 39-40 (Post-Service) get NO faults
     if day_index < FAULT_START_DAY or day_index > FAULT_END_DAY:
         return df
 
+    # Scales from 0.0 (Day 10) to 1.0 (Day 38)
     degradation_factor = (day_index - FAULT_START_DAY + 1) / (FAULT_END_DAY - FAULT_START_DAY + 1)
     
+    # Apply physical drift
     df['mass_air_flow_rate_g_s'] *= (1 - (0.35 * degradation_factor))
-    
     df['fuel_trim_bank_1_long_term'] += (25.0 * degradation_factor)
     df['fuel_trim_bank_1_short_term'] += (8.0 * degradation_factor)
     
@@ -81,6 +85,7 @@ def generate_trip(blocks, duration_minutes, start_time, day_index):
     trip_df = pd.concat(trip_blocks, ignore_index=True)
     trip_df = smooth_seams(trip_df)
     
+    # Inject the faults based on what day it is
     trip_df = apply_vacuum_leak_physics(trip_df, day_index)
     
     timestamps = [start_time + timedelta(seconds=i * TARGET_FREQ_SECONDS) for i in range(len(trip_df))]
@@ -96,26 +101,28 @@ def main():
     start_date = datetime(2024, 7, 5, 0, 0, 0)
     all_trips = []
     
-    print(f"[*] Synthesizing {DAYS_TO_GENERATE} days of heavy-duty storyline telemetry...")
+    print(f"[*] Synthesizing {DAYS_TO_GENERATE} days of heavy-duty storyline telemetry for {SIM_ID}...")
     for day in range(DAYS_TO_GENERATE):
         current_day = start_date + timedelta(days=day)
         
-        # Shift 1: Morning Route (approx 3.5 to 4.5 hours)
+        # Shift 1: Morning Route (3.5 to 4.5 hours)
         shift1_start = current_day.replace(hour=random.randint(6, 7), minute=random.randint(0, 30))
-        shift1_duration = random.randint(210, 270) # Duration in minutes
+        shift1_duration = random.randint(210, 270) 
         all_trips.append(generate_trip(blocks, shift1_duration, shift1_start, day))
         
-        # Shift 2: Mid-day Route (approx 3 to 4 hours)
+        # Shift 2: Mid-day Route (3 to 4 hours)
         shift2_start = current_day.replace(hour=random.randint(12, 13), minute=random.randint(0, 30))
         shift2_duration = random.randint(180, 240)
         all_trips.append(generate_trip(blocks, shift2_duration, shift2_start, day))
         
-        # Shift 3: Evening Route (approx 2 to 2.5 hours)
+        # Shift 3: Evening Route (2 to 2.5 hours)
         shift3_start = current_day.replace(hour=random.randint(18, 19), minute=random.randint(0, 30))
         shift3_duration = random.randint(120, 150)
         all_trips.append(generate_trip(blocks, shift3_duration, shift3_start, day))
         
     final_df = pd.concat(all_trips, ignore_index=True)
+    
+    # Enforce exact column order required by the pipeline
     cols = ['timestamp', 'date', 'source_id'] + physics_cols
     final_df = final_df[cols]
     
