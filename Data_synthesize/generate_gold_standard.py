@@ -12,24 +12,45 @@ BLOCK_MINUTES = 5
 ROWS_PER_BLOCK = int((BLOCK_MINUTES * 60) / TARGET_FREQ_SECONDS)
 
 def load_and_prep_blocks(filepath):
+    print(f"Loading raw data from {filepath}...")
     df = pd.read_csv(filepath)
     
-    # 1. Clean up and parse the mixed timestamp format (e.g., '2024-07-05 T07:22:10+0000')
-    df['timestamp'] = df['timestamp'].astype(str).str.replace(' T', 'T')
-    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed')
-    
-    # 2. Downsample 1-second data to 4-second data to maintain ML sequence window size
+    # 1. Parse Timestamp
+    df['timestamp'] = pd.to_datetime(df['timestamp'], format='mixed', utc=True)
     df.set_index('timestamp', inplace=True)
-    df = df.resample(f'{TARGET_FREQ_SECONDS}s').mean(numeric_only=True).dropna().reset_index()
-
+    
+    # 2. Drop structural columns and force physics columns to float
     cols_to_drop = ['date', 'source_id', 'ingest_ts', 'writer_ts', 'row_hash']
-    physics_cols = [c for c in df.columns if c not in cols_to_drop and c != 'timestamp']
+    physics_cols = [c for c in df.columns if c not in cols_to_drop]
+    
+    for col in physics_cols:
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+        
     df_physics = df[physics_cols]
+    print(f"[*] Shape before resampling: {df_physics.shape} (1-second data)")
+    
+    # 3. Resample to 4-second frequency
+    df_resampled = df_physics.resample(f'{TARGET_FREQ_SECONDS}s').mean()
+    print(f"[*] Shape after resampling: {df_resampled.shape} (4-second data)")
+    
+    # Smooth over any 4-8 second micro-drops caused by the sampling alignment
+    df_resampled = df_resampled.interpolate(method='linear', limit=2)
     
     blocks = []
-    for i in range(0, len(df_physics) - ROWS_PER_BLOCK, ROWS_PER_BLOCK):
-        blocks.append(df_physics.iloc[i : i + ROWS_PER_BLOCK].reset_index(drop=True))
+    for i in range(0, len(df_resampled) - ROWS_PER_BLOCK, ROWS_PER_BLOCK):
+        chunk = df_resampled.iloc[i : i + ROWS_PER_BLOCK]
+        
+        # If the chunk is fully intact, save it
+        if not chunk.isna().any().any():
+            blocks.append(chunk.reset_index(drop=True))
+            
+    print(f"[*] Created {len(blocks)} clean physical blocks of {BLOCK_MINUTES} minutes each.")
     
+    if len(blocks) == 0:
+        print("\n[!] DEBUG: Null values detected after resampling. Breakdown per column:")
+        print(df_resampled.isna().sum())
+        raise ValueError("CRITICAL: Extracted 0 blocks. See debug output above.")
+        
     return blocks, physics_cols
 
 def smooth_seams(df, window=5):
