@@ -96,17 +96,24 @@ def main():
     start_date = datetime(2024, 7, 5, 0, 0, 0)
     all_trips = []
     
-    print(f"[*] Synthesizing {DAYS_TO_GENERATE} days of storyline telemetry...")
+    print(f"[*] Synthesizing {DAYS_TO_GENERATE} days of heavy-duty storyline telemetry...")
     for day in range(DAYS_TO_GENERATE):
         current_day = start_date + timedelta(days=day)
         
-        trip1_start = current_day.replace(hour=random.randint(7, 8), minute=random.randint(0, 59))
-        trip1_duration = random.randint(20, 60)
-        all_trips.append(generate_trip(blocks, trip1_duration, trip1_start, day))
+        # Shift 1: Morning Route (approx 3.5 to 4.5 hours)
+        shift1_start = current_day.replace(hour=random.randint(6, 7), minute=random.randint(0, 30))
+        shift1_duration = random.randint(210, 270) # Duration in minutes
+        all_trips.append(generate_trip(blocks, shift1_duration, shift1_start, day))
         
-        trip2_start = current_day.replace(hour=random.randint(17, 18), minute=random.randint(0, 59))
-        trip2_duration = random.randint(20, 60)
-        all_trips.append(generate_trip(blocks, trip2_duration, trip2_start, day))
+        # Shift 2: Mid-day Route (approx 3 to 4 hours)
+        shift2_start = current_day.replace(hour=random.randint(12, 13), minute=random.randint(0, 30))
+        shift2_duration = random.randint(180, 240)
+        all_trips.append(generate_trip(blocks, shift2_duration, shift2_start, day))
+        
+        # Shift 3: Evening Route (approx 2 to 2.5 hours)
+        shift3_start = current_day.replace(hour=random.randint(18, 19), minute=random.randint(0, 30))
+        shift3_duration = random.randint(120, 150)
+        all_trips.append(generate_trip(blocks, shift3_duration, shift3_start, day))
         
     final_df = pd.concat(all_trips, ignore_index=True)
     cols = ['timestamp', 'date', 'source_id'] + physics_cols
